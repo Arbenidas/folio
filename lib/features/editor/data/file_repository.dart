@@ -22,8 +22,9 @@ class FileRepository implements DocumentRepository {
 
     if (await FileRepository(directory: destination)
         ._markdownDirectory(destination)
-        .exists())
+        .exists()) {
       return;
+    }
     final targetNotes = File('${destination.path}/notes.json');
     final targetLegacy = File('${destination.path}/notebook.json');
     if (await targetNotes.exists() || await targetLegacy.exists()) return;
@@ -227,8 +228,9 @@ class FileRepository implements DocumentRepository {
       });
       final contents = '---\n$metadata\n---\n${note.content}';
       final file = File(path);
-      if (await file.exists() && await file.readAsString() == contents)
+      if (await file.exists() && await file.readAsString() == contents) {
         continue;
+      }
       final temp = File('$path.tmp');
       await temp.writeAsString(contents, flush: true);
       await temp.rename(path);

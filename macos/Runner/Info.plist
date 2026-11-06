@@ -28,5 +28,13 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/Arbenidas/folio/updates/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>sNgBSlpKJW+vrfZdnFrIEshoFMgDRmgeq2v2Y6x7QOs=</string>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>
