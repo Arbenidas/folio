@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:folio/main.dart';
 import 'package:folio/features/editor/data/file_repository.dart';
 import 'package:folio/features/editor/domain/document_repository.dart';
@@ -13,6 +12,7 @@ import 'package:folio/features/editor/domain/markdown_document.dart';
 import 'package:folio/features/editor/presentation/controllers/editor_notifier.dart';
 import 'package:folio/features/editor/presentation/controllers/vim_controller.dart';
 import 'package:folio/features/editor/presentation/views/editor_screen.dart';
+import 'package:folio/features/editor/presentation/widgets/markdown_preview.dart';
 
 class MemoryRepository implements DocumentRepository {
   List<MarkdownDocument> saved = [
@@ -191,9 +191,11 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.keyL, character: 'l');
       await tester.pump();
       final selection = original.widget.controller.selection;
-      final markdown = tester.widget<Markdown>(find.byType(Markdown));
+      final markdown = tester.widget<MarkdownPreview>(
+        find.byType(MarkdownPreview),
+      );
       final initialX = tester.getTopLeft(source).dx;
-      await tester.tap(find.byTooltip('Mostrar u ocultar notas'));
+      await tester.tap(find.byTooltip('Mostrar notas'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 80));
       final duringX = tester.getTopLeft(source).dx;
@@ -201,11 +203,11 @@ void main() {
       expect(duringX, greaterThan(initialX - 206));
       expect(tester.takeException(), isNull);
       // Reverse while still moving; the source field must never be recreated.
-      await tester.tap(find.byTooltip('Mostrar u ocultar notas'));
+      await tester.tap(find.byTooltip('Ocultar notas'));
       await tester.pumpAndSettle();
       expect(tester.state(source), same(original));
       expect(original.widget.controller.selection, selection);
-      expect(tester.widget(find.byType(Markdown)), same(markdown));
+      expect(tester.widget(find.byType(MarkdownPreview)), same(markdown));
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
@@ -215,7 +217,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 20));
       await tester.sendKeyEvent(LogicalKeyboardKey.keyJ, character: 'j');
       await tester.pumpAndSettle();
-      expect(markdown.controller!.offset, closeTo(120, 0.1));
+      expect(markdown.controller.offset, closeTo(120, 0.1));
       expect(tester.takeException(), isNull);
       await c.save();
       await tester.pumpWidget(const SizedBox());
@@ -240,7 +242,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       final before = tester.getTopLeft(find.text('EDITOR')).dx;
-      await tester.tap(find.byTooltip('Mostrar u ocultar notas'));
+      await tester.tap(find.byTooltip('Mostrar notas'));
       await tester.pump();
       expect(tester.getTopLeft(find.text('EDITOR')).dx, before - 206);
       expect(tester.takeException(), isNull);
@@ -283,11 +285,13 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       expect(find.text('NORMAL'), findsOneWidget);
-      await tester.tap(find.byTooltip('Nueva nota (Cmd+N)'));
+      await tester.tap(find.bySemanticsLabel('Nueva nota (⌘N)'));
       await tester.pumpAndSettle();
       expect(c.notes.length, 2);
       expect(find.text('INSERT'), findsOneWidget);
-      await tester.tap(find.byTooltip('Ayuda de Markdown y teclado (F1)'));
+      await tester.tap(
+        find.bySemanticsLabel('Ayuda de Markdown y teclado (F1)'),
+      );
       await tester.pumpAndSettle();
       expect(find.text('Ayuda rápida'), findsOneWidget);
       expect(find.text('Títulos'), findsOneWidget);
