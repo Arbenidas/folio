@@ -121,4 +121,8 @@ Después de crear el repositorio en GitHub y subir la rama `main`, configura lo 
 4. Bloquea force pushes y la eliminación de `main`.
 5. Como el proyecto empieza con una persona mantenedora, no exijas aprobación obligatoria. Actívala cuando haya otra persona disponible para revisar PRs.
 
-El workflow **CI** ejecuta análisis, pruebas y una compilación de macOS en cada pull request hacia `main`. No publica versiones automáticamente. Para la primera alfa, crea manualmente una GitHub Release con la etiqueta `v0.1.0-alpha.1`, márcala como pre-release y adjunta el DMG probado.
+El workflow **CI** ejecuta análisis, pruebas y una compilación de macOS en cada pull request hacia `main`. El workflow **Release** compila y publica cada etiqueta `v*` como una GitHub Release, y actualiza el feed que consulta Sparkle.
+
+Para habilitar las publicaciones automáticas, exporta la clave privada de Sparkle desde el Llavero de macOS y guárdala como el secreto `SPARKLE_PRIVATE_KEY` en **Settings → Secrets and variables → Actions** del repositorio. Codifica el archivo exportado en Base64 para guardarlo como secreto. No subas la clave ni el archivo exportado al repositorio. La clave pública ya está en `Info.plist`.
+
+Para publicar una versión, actualiza `version` en `pubspec.yaml` e incrementa el número de compilación después de `+`. Añade sus notas en una nueva sección de `CHANGELOG.md` con el encabezado `## [versión] - fecha`. Crea y sube una etiqueta `v` que coincida con esa versión, por ejemplo `v0.1.0-alpha.1`. Actions generará el ZIP de actualización, firmará el feed y publicará las notas del release. Sparkle mostrará las novedades y ofrecerá instalar la actualización. La primera instalación todavía puede requerir autorización manual en macOS porque la app no está notarizada.

@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-feed
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish update
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          declared_version="$(sed -n 's/^version: \([^+]*\)+.*/\1/p' pubspec.yaml)"
+          if [ "$version" != "$declared_version" ]; then
+            echo "Tag $RELEASE_TAG does not match pubspec version $declared_version"
+            exit 1
+          fi
+
+      - name: Build macOS app
+        run: flutter build macos --release
+
+      - name: Sign and package update
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Add the SPARKLE_PRIVATE_KEY repository secret before tagging a release."
+            exit 1
+          fi
+
+          sparkle_tools="$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -path '*/Sparkle/bin/generate_keys' -print -quit)"
+          if [ -z "$sparkle_tools" ]; then
+            echo "Sparkle tools were not found in Xcode's resolved packages."
+            exit 1
+          fi
+          sparkle_bin="$(dirname "$sparkle_tools")"
+          key_file="$RUNNER_TEMP/sparkle-private-key"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | base64 --decode > "$key_file"
+          "$sparkle_tools" -f "$key_file"
+
+          version="${RELEASE_TAG#v}"
+          updates_dir="$RUNNER_TEMP/updates"
+          app="build/macos/Build/Products/Release/Folio.app"
+          mkdir -p "$updates_dir"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app" "$updates_dir/Folio-${RELEASE_TAG}.zip"
+
+          awk -v version="$version" \
+            index($0, "## [" version "] - ") == 1 { capture = 1; next }
+             capture && /^## \[/ { exit }
+             capture { print }' CHANGELOG.md \
+            > "$updates_dir/Folio-${RELEASE_TAG}.md"
+          if [ ! -s "$updates_dir/Folio-${RELEASE_TAG}.md" ]; then
+            echo "Add a published changelog section for $version before tagging."
+            exit 1
+          fi
+
+          "$sparkle_bin/generate_appcast" \
+            --download-url-prefix \
+            "https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/" \
+            --release-notes-url-prefix \
+            "https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/" \
+            "$updates_dir"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          release_options=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            release_options+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" \
+            "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.zip" \
+            "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.md" \
+            "$RUNNER_TEMP/updates/appcast.xml" \
+            --title "Folio ${RELEASE_TAG#v}" \
+            --notes-file "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.md" \
+            --verify-tag "${release_options[@]}"
+
+      - name: Publish update feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          feed_dir="$RUNNER_TEMP/update-feed"
+          git init --initial-branch=updates "$feed_dir"
+          cd "$feed_dir"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
+          git -c "http.extraheader=AUTHORIZATION: basic ${auth}" fetch origin updates || true
+          if git show-ref --verify --quiet refs/remotes/origin/updates; then
+            git reset --hard origin/updates
+          fi
+          cp "$RUNNER_TEMP/updates/appcast.xml" appcast.xml
+          git add appcast.xml
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Publish update feed for ${GITHUB_REF_NAME}"
+          git -c "http.extraheader=AUTHORIZATION: basic ${auth}" \
+            push --force origin updates

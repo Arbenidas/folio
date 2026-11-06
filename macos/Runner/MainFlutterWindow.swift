@@ -2,8 +2,11 @@ import Cocoa
 import Darwin
 import FlutterMacOS
 import AVFoundation
+import Sparkle
 
 class MainFlutterWindow: NSWindow {
+  private var updaterController: SPUStandardUpdaterController?
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
@@ -23,6 +26,23 @@ class MainFlutterWindow: NSWindow {
     var pendingNotesDirectoryURL: URL?
     var pendingNotesDirectoryBookmark: Data?
     let defaults = UserDefaults.standard
+    let updaterController = SPUStandardUpdaterController(
+      startingUpdater: true,
+      updaterDelegate: nil,
+      userDriverDelegate: nil
+    )
+    self.updaterController = updaterController
+
+    if let appMenu = NSApp.mainMenu?.items.first?.submenu {
+      appMenu.addItem(.separator())
+      let updateItem = NSMenuItem(
+        title: "Buscar actualizaciones…",
+        action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+        keyEquivalent: ""
+      )
+      updateItem.target = updaterController
+      appMenu.addItem(updateItem)
+    }
 
     if let bookmark = defaults.data(forKey: "folioNotesDirectoryBookmark") {
       do {
@@ -52,6 +72,11 @@ class MainFlutterWindow: NSWindow {
     }
 
     keyboardChannel.setMethodCallHandler { call, result in
+      if call.method == "checkForUpdates" {
+        updaterController.checkForUpdates(nil)
+        result(nil)
+        return
+      }
       if call.method == "loadInitialSetup" {
         result([
           "isComplete": defaults.bool(forKey: "folioInitialSetupComplete"),
