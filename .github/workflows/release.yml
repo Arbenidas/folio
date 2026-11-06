@@ -56,16 +56,12 @@ jobs:
             exit 1
           fi
 
-          sparkle_tools="$(find "$HOME/Library/Developer/Xcode/DerivedData" \
-            -path '*/Sparkle/bin/generate_keys' -print -quit)"
-          if [ -z "$sparkle_tools" ]; then
-            echo "Sparkle tools were not found in Xcode's resolved packages."
+          generate_appcast="$(find build/macos/Build \
+            -path '*/artifacts/sparkle/Sparkle/bin/generate_appcast' -print -quit)"
+          if [ -z "$generate_appcast" ]; then
+            echo "Sparkle's generate_appcast tool was not found under build/macos/Build."
             exit 1
           fi
-          sparkle_bin="$(dirname "$sparkle_tools")"
-          key_file="$RUNNER_TEMP/sparkle-private-key"
-          printf '%s' "$SPARKLE_PRIVATE_KEY" | base64 --decode > "$key_file"
-          "$sparkle_tools" -f "$key_file"
 
           version="${RELEASE_TAG#v}"
           updates_dir="$RUNNER_TEMP/updates"
@@ -85,7 +81,8 @@ jobs:
             exit 1
           fi
 
-          "$sparkle_bin/generate_appcast" \
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | base64 --decode | \
+            "$generate_appcast" --ed-key-file - \
             --download-url-prefix \
             "https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/" \
             --release-notes-url-prefix \
