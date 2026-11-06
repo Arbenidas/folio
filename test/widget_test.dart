@@ -12,6 +12,7 @@ import 'package:folio/features/editor/domain/document_repository.dart';
 import 'package:folio/features/editor/domain/markdown_document.dart';
 import 'package:folio/features/editor/presentation/controllers/editor_notifier.dart';
 import 'package:folio/features/editor/presentation/controllers/vim_controller.dart';
+import 'package:folio/features/editor/presentation/views/editor_screen.dart';
 
 class MemoryRepository implements DocumentRepository {
   List<MarkdownDocument> saved = [
@@ -178,7 +179,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [editorProvider.overrideWithValue(c)],
-          child: const MyApp(),
+          child: const MyApp(home: EditorScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -234,7 +235,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [editorProvider.overrideWithValue(c)],
-          child: const MyApp(),
+          child: const MyApp(home: EditorScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -259,7 +260,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [editorProvider.overrideWithValue(c)],
-          child: const MyApp(),
+          child: const MyApp(home: EditorScreen()),
         ),
       );
       await tester.pumpAndSettle();

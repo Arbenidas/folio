@@ -11,7 +11,9 @@ import 'features/onboarding/presentation/views/initial_setup_screen.dart';
 void main() => runApp(const ProviderScope(child: MyApp()));
 
 class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.home});
+
+  final Widget? home;
   @override
   State<MyApp> createState() => _MyAppState();
 }
@@ -51,7 +53,7 @@ class _MyAppState extends State<MyApp> {
       ),
       // Keep the Navigator's initial route stable. StartupGate owns loading
       // state and switches to onboarding/editor after the async read completes.
-      home: const _StartupGate(),
+      home: widget.home ?? const _StartupGate(),
     );
   }
 }
