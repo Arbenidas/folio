@@ -2,6 +2,11 @@
 
 Los cambios destacados de cada versión se documentan aquí.
 
+## [0.1.0-alpha.3] - 2026-11-06
+
+- Publica la primera versión con actualizaciones automáticas de macOS ya operativas.
+- Incluye notas de versión en el aviso de actualización de Sparkle.
+
 ## [0.1.0-alpha.2] - 2026-11-06
 
 - Añade comprobación de actualizaciones automáticas para macOS con Sparkle.
