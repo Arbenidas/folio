@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -195,7 +196,7 @@ void main() {
         find.byType(MarkdownPreview),
       );
       final initialX = tester.getTopLeft(source).dx;
-      await tester.tap(find.byTooltip('Mostrar notas'));
+      await tester.tap(find.byIcon(CupertinoIcons.sidebar_right));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 80));
       final duringX = tester.getTopLeft(source).dx;
@@ -203,7 +204,7 @@ void main() {
       expect(duringX, greaterThan(initialX - 206));
       expect(tester.takeException(), isNull);
       // Reverse while still moving; the source field must never be recreated.
-      await tester.tap(find.byTooltip('Ocultar notas'));
+      await tester.tap(find.byIcon(CupertinoIcons.sidebar_left));
       await tester.pumpAndSettle();
       expect(tester.state(source), same(original));
       expect(original.widget.controller.selection, selection);
@@ -242,7 +243,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       final before = tester.getTopLeft(find.text('EDITOR')).dx;
-      await tester.tap(find.byTooltip('Mostrar notas'));
+      await tester.tap(find.byIcon(CupertinoIcons.sidebar_right));
       await tester.pump();
       expect(tester.getTopLeft(find.text('EDITOR')).dx, before - 206);
       expect(tester.takeException(), isNull);
@@ -285,13 +286,11 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       expect(find.text('NORMAL'), findsOneWidget);
-      await tester.tap(find.bySemanticsLabel('Nueva nota (⌘N)'));
+      await tester.tap(find.byIcon(CupertinoIcons.add));
       await tester.pumpAndSettle();
       expect(c.notes.length, 2);
       expect(find.text('INSERT'), findsOneWidget);
-      await tester.tap(
-        find.bySemanticsLabel('Ayuda de Markdown y teclado (F1)'),
-      );
+      await tester.tap(find.byIcon(CupertinoIcons.question_circle));
       await tester.pumpAndSettle();
       expect(find.text('Ayuda rápida'), findsOneWidget);
       expect(find.text('Títulos'), findsOneWidget);
