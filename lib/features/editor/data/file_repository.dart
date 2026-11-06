@@ -20,9 +20,20 @@ class FileRepository implements DocumentRepository {
     String normalize(String path) => path.replaceAll(RegExp(r'/+$'), '');
     if (normalize(sourceDirectory.path) == normalize(destination.path)) return;
 
+    if (await FileRepository(directory: destination)
+        ._markdownDirectory(destination)
+        .exists())
+      return;
     final targetNotes = File('${destination.path}/notes.json');
     final targetLegacy = File('${destination.path}/notebook.json');
     if (await targetNotes.exists() || await targetLegacy.exists()) return;
+
+    final sourceRepository = FileRepository(directory: sourceDirectory);
+    if (await sourceRepository._markdownDirectory(sourceDirectory).exists()) {
+      await FileRepository(directory: destination)
+          .save(await sourceRepository.load());
+      return;
+    }
 
     final sourceNotes = File('${sourceDirectory.path}/notes.json');
     final sourceLegacy = File('${sourceDirectory.path}/notebook.json');
@@ -46,13 +57,7 @@ class FileRepository implements DocumentRepository {
     List<MarkdownDocument> currentNotes,
   ) async {
     final target = FileRepository(directory: destination);
-    final targetJson = File('${destination.path}/notes.json');
-    final targetLegacy = File('${destination.path}/notebook.json');
-    final hasExistingNotebook =
-        await targetJson.exists() || await targetLegacy.exists();
-    final destinationNotes = hasExistingNotebook
-        ? await target.load()
-        : <MarkdownDocument>[];
+    final destinationNotes = await target._loadStored() ?? <MarkdownDocument>[];
 
     final currentById = {for (final note in currentNotes) note.id: note};
     final merged = <MarkdownDocument>[];
@@ -105,19 +110,49 @@ class FileRepository implements DocumentRepository {
 
   @override
   Future<List<MarkdownDocument>> load() async {
+    return await _loadStored() ??
+        [
+          const MarkdownDocument(
+            id: 'welcome',
+            title: 'Mis apuntes',
+            content: '# Mis apuntes\n\nUn espacio para guardar lo que voy aprendiendo.\n\n## Hoy aprendí\n\n- \n',
+          ),
+        ];
+  }
+
+  Directory _markdownDirectory(Directory root) =>
+      Directory('${root.path}/Notas Folio');
+
+  Future<List<MarkdownDocument>?> _loadStored() async {
     final dir = await _directory();
-    var file = File('${dir.path}/notes.json');
-    // Recupera las notas de la versión anterior. Ese archivo queda intacto.
-    if (!await file.exists()) file = File('${dir.path}/notebook.json');
-    if (!await file.exists()) {
-      return [
-        const MarkdownDocument(
-          id: 'welcome',
-          title: 'Mis apuntes',
-          content: '# Mis apuntes\n\nUn espacio para guardar lo que voy aprendiendo.\n\n## Hoy aprendí\n\n- \n',
-        ),
-      ];
+    final markdown = _markdownDirectory(dir);
+    if (await markdown.exists()) {
+      final notes = <({int position, MarkdownDocument note})>[];
+      await for (final file in _noteFiles(markdown)) {
+        final contents = await file.readAsString();
+        final end = contents.indexOf('\n---\n', 4);
+        if (!contents.startsWith('---\n') || end == -1) {
+          throw FormatException('Metadatos inválidos en ${file.path}.');
+        }
+        final data = jsonDecode(contents.substring(4, end)) as Map;
+        notes.add((
+          position: data['position'] as int,
+          note: MarkdownDocument(
+            id: data['id'] as String,
+            title: data['title'] as String,
+            folder: data['folder'] as String?,
+            content: contents.substring(end + 5),
+          ),
+        ));
+      }
+      notes.sort((a, b) => a.position.compareTo(b.position));
+      if (notes.isNotEmpty) return notes.map((entry) => entry.note).toList();
+      return null;
     }
+
+    var file = File('${dir.path}/notes.json');
+    if (!await file.exists()) file = File('${dir.path}/notebook.json');
+    if (!await file.exists()) return null;
     final json = jsonDecode(await file.readAsString());
     if (json is! Map || json['version'] != 1 || json['notes'] is! List) {
       throw const FormatException('El archivo de notas no es válido.');
@@ -140,30 +175,67 @@ class FileRepository implements DocumentRepository {
         notes.map((n) => n.id).toSet().length != notes.length) {
       throw const FormatException('No se pudieron leer las notas.');
     }
+    await save(notes);
     return notes;
   }
 
+  Stream<File> _noteFiles(Directory directory) => directory
+      .list(followLinks: false)
+      .where(
+        (entry) =>
+            entry is File &&
+            RegExp(r'/nota-[0-9a-f]*\.md$').hasMatch(entry.path),
+      )
+      .cast<File>();
+
   @override
   Future<void> save(List<MarkdownDocument> notes) async {
-    final path = '${(await _directory()).path}/notes.json';
-    final temp = File('$path.tmp');
-    await temp.writeAsString(
-      jsonEncode({
-        'version': 1,
-        'notes': notes
-            .map(
-              (n) => {
-                'id': n.id,
-                'title': n.title,
-                'content': n.content,
-                if (n.folder != null) 'folder': n.folder,
-              },
-            )
-            .toList(),
-      }),
-      flush: true,
-    );
-    await temp.rename(path);
+    final root = await _directory();
+    final target = _markdownDirectory(root);
+    if (await target.exists()) {
+      await _writeNotes(target, notes);
+      return;
+    }
+
+    // Publish the initial set only once every note is ready.
+    final staging = await root.createTemp('.folio-');
+    try {
+      await _writeNotes(staging, notes);
+      await staging.rename(target.path);
+    } finally {
+      if (await staging.exists()) await staging.delete(recursive: true);
+    }
+  }
+
+  Future<void> _writeNotes(
+    Directory directory,
+    List<MarkdownDocument> notes,
+  ) async {
+    final paths = <String>{};
+    for (final (position, note) in notes.indexed) {
+      final id = utf8
+          .encode(note.id)
+          .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+          .join();
+      final path = '${directory.path}/nota-$id.md';
+      paths.add(path);
+      final metadata = jsonEncode({
+        'id': note.id,
+        'title': note.title,
+        'position': position,
+        if (note.folder != null) 'folder': note.folder,
+      });
+      final contents = '---\n$metadata\n---\n${note.content}';
+      final file = File(path);
+      if (await file.exists() && await file.readAsString() == contents)
+        continue;
+      final temp = File('$path.tmp');
+      await temp.writeAsString(contents, flush: true);
+      await temp.rename(path);
+    }
+    await for (final file in _noteFiles(directory)) {
+      if (!paths.contains(file.path)) await file.delete();
+    }
   }
 
   @override

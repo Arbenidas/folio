@@ -82,7 +82,16 @@ void main() {
         await repo.save([notes.single.copyWith(content: 'Editado')]);
         expect((await repo.load()).single.content, 'Editado');
         expect(await old.readAsString(), original);
-        expect(await File('${dir.path}/notes.json.tmp').exists(), false);
+        final markdown = File('${dir.path}/Notas Folio/nota-61.md');
+        expect(await markdown.readAsString(), endsWith('---\nEditado'));
+        expect(await File('${dir.path}/notes.json').exists(), false);
+        await markdown.writeAsString(
+          (await markdown.readAsString()).replaceFirst(
+            'Editado',
+            '**Desde otro editor**',
+          ),
+        );
+        expect((await repo.load()).single.content, '**Desde otro editor**');
       } finally {
         await dir.delete(recursive: true);
       }

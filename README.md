@@ -64,9 +64,10 @@ La búsqueda distingue mayúsculas. El historial de deshacer conserva hasta 200 
 
 ## Almacenamiento y datos
 
-Las notas se guardan en un archivo `notes.json` dentro de la carpeta seleccionada durante la configuración inicial. Folio necesita acceso a esa carpeta para guardar y volver a abrir las notas.
+El selector de la configuración inicial se abre en tu carpeta de usuario. Folio guarda cada nota en un archivo `.md` dentro de la subcarpeta `Notas Folio` de la ubicación elegida. Cada archivo contiene el texto Markdown y un encabezado con los datos que usa Folio para organizarlo.
 
-Si se encuentra un archivo `notebook.json` de una versión anterior y todavía no existe `notes.json`, Folio intenta recuperar esas notas. El archivo anterior se conserva. Al cambiar la carpeta, la aplicación copia las notas y deja la carpeta anterior como respaldo.
+Al abrir un cuaderno anterior, Folio convierte sus notas desde `notes.json` o `notebook.json` y conserva el archivo original. Al cambiar la ubicación desde Ajustes, copia las notas y conserva la carpeta anterior como respaldo.
+
 
 La vista previa muestra el texto alternativo de las imágenes Markdown y no descarga recursos externos.
 

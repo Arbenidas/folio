@@ -25,15 +25,19 @@ class InitialSetupScreen extends StatefulWidget {
 class _InitialSetupScreenState extends State<InitialSetupScreen> {
   late String _directoryPath = widget.initialDirectory.path;
   AppTheme _theme = AppAppearance.instance.selected;
+  bool _pickedDirectory = false;
   bool _busy = false;
   String? _error;
 
   Future<void> _chooseDirectory() async {
     try {
-      final path = await FirstRunConfig.chooseNotesDirectory(_directoryPath);
+      final path = await FirstRunConfig.chooseNotesDirectory(
+        _pickedDirectory ? _directoryPath : '',
+      );
       if (!mounted || path == null) return;
       setState(() {
         _directoryPath = path;
+        _pickedDirectory = true;
         _error = null;
       });
     } catch (error) {

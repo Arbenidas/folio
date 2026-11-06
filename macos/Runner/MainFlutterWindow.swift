@@ -1,4 +1,5 @@
 import Cocoa
+import Darwin
 import FlutterMacOS
 import AVFoundation
 
@@ -68,6 +69,9 @@ class MainFlutterWindow: NSWindow {
         panel.allowsMultipleSelection = false
         if let path = call.arguments as? String, !path.isEmpty {
           panel.directoryURL = URL(fileURLWithPath: path, isDirectory: true)
+        } else if let user = getpwuid(getuid()) {
+          let home = String(cString: user.pointee.pw_dir)
+          panel.directoryURL = URL(fileURLWithPath: home, isDirectory: true)
         }
         panel.begin { response in
           guard response == .OK, let url = panel.url else {
