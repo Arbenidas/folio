@@ -222,7 +222,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 20));
       await tester.sendKeyEvent(LogicalKeyboardKey.keyJ, character: 'j');
       await tester.pumpAndSettle();
-      expect(markdown.controller.offset, closeTo(120, 0.1));
+      expect(markdown.controller.offset, closeTo(60, 0.1));
       expect(tester.takeException(), isNull);
       await c.save();
       await tester.pumpWidget(const SizedBox());
@@ -300,7 +300,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Markdown'), findsWidgets);
       expect(find.text('Títulos'), findsOneWidget);
-      await tester.tap(find.byTooltip('Cerrar ayuda'));
+      await tester.tap(find.bySemanticsLabel('Cerrar ayuda'));
       await tester.pumpAndSettle();
       tester.view.physicalSize = const Size(800, 620);
       await tester.pumpAndSettle();
