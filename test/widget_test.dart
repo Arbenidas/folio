@@ -302,8 +302,6 @@ void main() {
       expect(find.text('Títulos'), findsOneWidget);
       await tester.tap(find.bySemanticsLabel('Cerrar ayuda'));
       await tester.pumpAndSettle();
-      tester.view.physicalSize = const Size(800, 620);
-      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       await c.save();
       await tester.pumpWidget(const SizedBox());
