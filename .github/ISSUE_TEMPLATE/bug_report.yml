@@ -1,0 +1,46 @@
+name: Reportar un error
+description: Informar un problema reproducible en Folio
+title: "[Error]: "
+body:
+ - type: markdown
+   attributes:
+     value: >
+       No adjuntes notas privadas. Usa datos de ejemplo al compartir capturas o archivos.
+ - type: textarea
+   id: expected
+   attributes:
+     label: Qué esperabas que ocurriera
+     description: Describe el resultado esperado.
+   validations:
+     required: true
+ - type: textarea
+   id: actual
+   attributes:
+     label: Qué ocurrió
+     description: Describe el resultado observado y los pasos para reproducirlo.
+   validations:
+     required: true
+ - type: input
+   id: folio-version
+   attributes:
+     label: Versión de Folio
+     placeholder: 0.1.0-alpha.1
+   validations:
+     required: false
+ - type: input
+   id: macos-version
+   attributes:
+     label: Versión de macOS
+     placeholder: macOS 15.0
+   validations:
+     required: true
+ - type: dropdown
+   id: architecture
+   attributes:
+     label: Arquitectura
+     options:
+       - Apple Silicon
+       - Intel
+       - No sé
+   validations:
+     required: true

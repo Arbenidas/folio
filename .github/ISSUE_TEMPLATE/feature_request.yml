@@ -1,0 +1,25 @@
+name: Proponer una mejora
+description: Proponer una mejora o función para Folio
+title: "[Mejora]: "
+body:
+ - type: textarea
+   id: problem
+   attributes:
+     label: Problema que quieres resolver
+     description: ¿Qué tarea resulta difícil o imposible hoy?
+   validations:
+     required: true
+ - type: textarea
+   id: proposal
+   attributes:
+     label: Resultado propuesto
+     description: Describe cómo te gustaría que funcionara.
+   validations:
+     required: true
+ - type: textarea
+   id: alternatives
+   attributes:
+     label: Alternativas consideradas
+     description: Opcional.
+   validations:
+     required: false
