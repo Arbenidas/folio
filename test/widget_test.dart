@@ -194,6 +194,7 @@ void main() {
       final markdown = tester.widget<MarkdownPreview>(
         find.byType(MarkdownPreview),
       );
+      final markdownState = tester.state(find.byType(MarkdownPreview));
       final initialX = tester.getTopLeft(source).dx;
       await tester.tap(find.byTooltip('Ocultar notas'));
       await tester.pump();
@@ -207,7 +208,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.state(source), same(original));
       expect(original.widget.controller.selection, selection);
-      expect(tester.widget(find.byType(MarkdownPreview)), same(markdown));
+      expect(tester.state(find.byType(MarkdownPreview)), same(markdownState));
+      expect(
+        tester.widget<MarkdownPreview>(find.byType(MarkdownPreview)).controller,
+        same(markdown.controller),
+      );
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
@@ -244,7 +249,7 @@ void main() {
       final before = tester.getTopLeft(find.text('EDITOR')).dx;
       await tester.tap(find.byTooltip('Ocultar notas'));
       await tester.pump();
-      expect(tester.getTopLeft(find.text('EDITOR')).dx, before - 206);
+      expect(tester.getTopLeft(find.text('EDITOR')).dx, before - 236);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       c.dispose();
@@ -293,9 +298,9 @@ void main() {
       expect(find.text('INSERT'), findsOneWidget);
       await tester.sendKeyEvent(LogicalKeyboardKey.f1);
       await tester.pumpAndSettle();
-      expect(find.text('Ayuda rápida'), findsOneWidget);
+      expect(find.text('Markdown'), findsWidgets);
       expect(find.text('Títulos'), findsOneWidget);
-      await tester.tap(find.text('Cerrar'));
+      await tester.tap(find.byTooltip('Cerrar ayuda'));
       await tester.pumpAndSettle();
       tester.view.physicalSize = const Size(800, 620);
       await tester.pumpAndSettle();
