@@ -56,10 +56,17 @@ jobs:
             exit 1
           fi
 
-          generate_appcast="$(find build/macos/Build \
-            -path '*/artifacts/sparkle/Sparkle/bin/generate_appcast' -print -quit)"
-          if [ -z "$generate_appcast" ]; then
-            echo "Sparkle's generate_appcast tool was not found under build/macos/Build."
+          sparkle_version="$(python3 -c 'import json; print(next(pin["state"]["version"] for pin in json.load(open("macos/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved"))["pins"] if pin["identity"] == "sparkle"))')"
+          sparkle_archive="$RUNNER_TEMP/Sparkle-${sparkle_version}.tar.xz"
+          sparkle_dir="$RUNNER_TEMP/sparkle-tools"
+          curl --fail --location --retry 3 \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${sparkle_version}/Sparkle-${sparkle_version}.tar.xz" \
+            --output "$sparkle_archive"
+          mkdir -p "$sparkle_dir"
+          tar -xJf "$sparkle_archive" -C "$sparkle_dir"
+          generate_appcast="$sparkle_dir/bin/generate_appcast"
+          if [ ! -x "$generate_appcast" ]; then
+            echo "Sparkle's generate_appcast tool was not present in the official distribution archive."
             exit 1
           fi
 
