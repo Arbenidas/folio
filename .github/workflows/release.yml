@@ -74,10 +74,11 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent \
             "$app" "$updates_dir/Folio-${RELEASE_TAG}.zip"
 
-          awk -v version="$version" \
+          awk -v version="$version" '
             index($0, "## [" version "] - ") == 1 { capture = 1; next }
-             capture && /^## \[/ { exit }
-             capture { print }' CHANGELOG.md \
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md \
             > "$updates_dir/Folio-${RELEASE_TAG}.md"
           if [ ! -s "$updates_dir/Folio-${RELEASE_TAG}.md" ]; then
             echo "Add a published changelog section for $version before tagging."
