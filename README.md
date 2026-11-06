@@ -16,7 +16,7 @@ Folio es una aplicación de escritorio para macOS que permite escribir y organiz
 ## Requisitos
 
 - macOS 12 o posterior.
-- Flutter 3.38.4 o posterior con Dart 3.13.3 o posterior.
+- Flutter 3.47.4 o posterior con Dart 3.13.3 o posterior.
 - Xcode y sus herramientas de línea de comandos.
 
 ## Ejecutar desde el código fuente

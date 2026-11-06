@@ -4,7 +4,7 @@ Gracias por considerar una contribución. Los reportes y cambios pequeños ayuda
 
 ## Antes de empezar
 
-Para ejecutar Folio desde el código necesitas macOS 12 o posterior, Flutter 3.38.4 o posterior, Dart 3.13.3 o posterior y Xcode con sus herramientas de línea de comandos. Consulta [README.md](README.md#ejecutar-desde-el-código-fuente) para iniciar la aplicación.
+Para ejecutar Folio desde el código necesitas macOS 12 o posterior, Flutter 3.47.4 o posterior, Dart 3.13.3 o posterior y Xcode con sus herramientas de línea de comandos. Consulta [README.md](README.md#ejecutar-desde-el-código-fuente) para iniciar la aplicación.
 
 Si quieres proponer un cambio grande, abre primero un issue para conversar sobre el alcance y evitar trabajo que no encaje con la dirección del proyecto.
 
