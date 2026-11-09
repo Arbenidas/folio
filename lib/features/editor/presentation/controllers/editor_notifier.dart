@@ -306,8 +306,9 @@ class EditorNotifier extends ChangeNotifier {
   Future<void> deleteFolder(String folder) async {
     try {
       await save();
-      if (saveStatus == 'Error al guardar')
+      if (saveStatus == 'Error al guardar') {
         throw const FileSystemException('Hay cambios sin guardar.');
+      }
       await repository.deleteFolder(folder);
       await _queueReconcile(await repository.scan());
     } catch (e) {
@@ -494,11 +495,13 @@ class EditorNotifier extends ChangeNotifier {
     String normalize(String path) => p.normalize(p.absolute(path));
     final oldDirectory = NotesStorage.directory;
     if (oldDirectory != null &&
-        normalize(oldDirectory.path) == normalize(destination.path))
+        normalize(oldDirectory.path) == normalize(destination.path)) {
       return;
+    }
     await save();
-    if (saveStatus == 'Error al guardar')
+    if (saveStatus == 'Error al guardar') {
       throw const FileSystemException('Hay cambios sin guardar.');
+    }
     final sourceSnapshot = await repository.scan();
     final copied = await FileRepository.copyNotebookInto(
       destination,

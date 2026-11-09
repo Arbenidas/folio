@@ -18,7 +18,7 @@ class RecoveredDraft {
 }
 
 class RecoveredDraftsRepository {
-  RecoveredDraftsRepository({Directory? directory}) : _directory = directory;
+  RecoveredDraftsRepository({this._directory});
 
   final Directory? _directory;
 

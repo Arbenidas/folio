@@ -290,7 +290,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                             const SizedBox(width: 9),
                             Expanded(
                               child: Text(
-                                'Las notas Markdown se guardarán en: ${_directoryPath}/Folio',
+                                'Las notas Markdown se guardarán en: $_directoryPath/Folio',
                                 style: TextStyle(
                                   color: colors.onSurface,
                                   fontSize: 11,

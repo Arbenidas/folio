@@ -34,8 +34,9 @@ class FileRepository implements DocumentRepository {
         root.path,
       );
     }
-    if (create && type == FileSystemEntityType.notFound)
+    if (create && type == FileSystemEntityType.notFound) {
       await root.create(recursive: true);
+    }
     return root;
   }
 
@@ -416,8 +417,9 @@ class FileRepository implements DocumentRepository {
   Future<String> createFolder(String path) async {
     final root = await _root();
     final parts = _safeFolderSegments(path);
-    if (parts.isEmpty)
+    if (parts.isEmpty) {
       throw const FileSystemException('Nombre de carpeta vacío.');
+    }
     var parent = root;
     final created = <String>[];
     for (var index = 0; index < parts.length; index++) {
@@ -447,10 +449,11 @@ class FileRepository implements DocumentRepository {
   Future<String> renameFolder(String path, String title) async {
     final root = await _root();
     final segments = _safeFolderSegments(path);
-    if (segments.isEmpty)
+    if (segments.isEmpty) {
       throw const FileSystemException(
         'No se puede renombrar la raíz de Folio.',
       );
+    }
     final source = Directory(p.joinAll([root.path, ...segments]));
     if (await FileSystemEntity.type(source.path, followLinks: false) !=
         FileSystemEntityType.directory) {
