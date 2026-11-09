@@ -7,9 +7,13 @@ Folio es una aplicación de escritorio para macOS que permite escribir y organiz
 ## Funciones
 
 - Crear y renombrar notas con guardado automático.
-- Elegir dónde guardar las notas y seleccionar entre cinco temas: Claro, Oscuro, Sepia, Bosque y Gruvbox.
+- Elegir dónde guardar las notas, combinar tres estilos visuales con siete temas de color y cambiar el tamaño de la ventana con doble clic en la barra superior.
 - Editar con atajos de teclado y un subconjunto de comandos Vim.
-- Ver una vista previa del Markdown.
+- Buscar dentro de todas las notas con `Cmd+K` y saltar a la coincidencia.
+- Crear notas de estudio, ideas y requisitos desde **Archivo → Nueva nota desde plantilla**, con una vista previa antes de elegir.
+- Marcar y desmarcar tareas Markdown directamente en la vista previa.
+- Pegar capturas con `Cmd+V` en el editor y verlas en la vista previa.
+- Restaurar notas eliminadas desde **Archivo → Papelera**.
 - Importar archivos `.md` y `.txt` de hasta 1 MB. La importación crea una copia local y no modifica el original.
 - Exportar una nota como archivo Markdown.
 
@@ -36,15 +40,17 @@ flutter run -d macos
 | --- | --- |
 | `Cmd+N` | Crear una nota |
 | `Cmd+S` | Guardar la nota actual |
+| `Cmd+K` | Buscar notas, carpetas y contenido |
+| `Cmd+V` | Pegar texto o una captura en la nota |
 | `Cmd+1` / `Cmd+2` / `Cmd+3` | Enfocar notas / editor / vista previa |
-| `Ctrl+H` / `Ctrl+L` | Desde NORMAL, enfocar notas / vista previa |
+| `Ctrl+H` / `Ctrl+L` | Con Vim activado, enfocar notas / vista previa desde cualquier panel |
 | `j` / `k` / `Enter` | En notas, elegir una nota / entrar al editor |
 | `j` / `k` / `h` | En vista previa, desplazar / volver al editor |
 | `?`, `F1` | Abrir la ayuda |
 
 ### Edición Vim
 
-Activa el botón **Vim** para usar este modo. Folio implementa un subconjunto propio de Vim. No incluye Neovim, plugins, macros ni todos sus comandos.
+Activa el botón **Vim** para usar este modo. Folio recuerda tu preferencia y la última búsqueda entre sesiones. Folio implementa un subconjunto propio de Vim. No incluye Neovim, plugins, macros ni todos sus comandos.
 
 | Atajo | Acción |
 | --- | --- |
@@ -64,12 +70,16 @@ La búsqueda distingue mayúsculas. El historial de deshacer conserva hasta 200 
 
 ## Almacenamiento y datos
 
-El selector de la configuración inicial se abre en tu carpeta de usuario. Folio guarda cada nota en un archivo `.md` dentro de la subcarpeta `Notas Folio` de la ubicación elegida. Cada archivo contiene el texto Markdown y un encabezado con los datos que usa Folio para organizarlo.
+La configuración inicial te da la bienvenida y después permite elegir una carpeta principal y un tema. Folio crea o reutiliza `<carpeta elegida>/Folio/`. Dentro, cada nota es un archivo `.md` normal y las carpetas de la barra lateral son carpetas reales, visibles también desde Finder. Los archivos contienen solo el texto Markdown, sin metadatos JSON.
 
-Al abrir un cuaderno anterior, Folio convierte sus notas desde `notes.json` o `notebook.json` y conserva el archivo original. Al cambiar la ubicación desde Ajustes, copia las notas y conserva la carpeta anterior como respaldo.
+Folio observa los cambios en esa carpeta mientras está abierto. Si un cambio externo choca con texto que aún no se había guardado, conserva una copia en **Archivo → Notas recuperadas**. Los borradores recuperados se guardan en el espacio privado de Folio, no dentro del cuaderno.
+
+Los datos anteriores de `Notas Folio`, `notes.json` y `notebook.json` no se migran ni se borran; el nuevo cuaderno comienza en la carpeta `Folio/`. Al cambiar la ubicación desde Ajustes, Folio copia la estructura Markdown a la nueva carpeta y conserva el cuaderno anterior como respaldo.
 
 
-La vista previa muestra el texto alternativo de las imágenes Markdown y no descarga recursos externos.
+Las capturas pegadas se guardan como PNG en `.folio-assets` junto a la nota. Al exportar una nota con capturas, elige una carpeta para guardar el Markdown y sus imágenes juntos. La vista previa muestra texto alternativo para imágenes externas y nunca las descarga.
+
+Las notas que envías a la papelera se guardan en `.folio-trash` dentro del cuaderno. Si ya existe una nota con el mismo nombre al restaurar, Folio conserva ambas.
 
 ## Desarrollo y comprobaciones
 

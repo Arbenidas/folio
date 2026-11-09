@@ -25,26 +25,39 @@ class InitialSetupScreen extends StatefulWidget {
 class _InitialSetupScreenState extends State<InitialSetupScreen> {
   late String _directoryPath = widget.initialDirectory.path;
   AppTheme _theme = AppAppearance.instance.selected;
+  int _step = 0;
   bool _pickedDirectory = false;
   bool _busy = false;
   String? _error;
 
-  Future<void> _chooseDirectory() async {
+  Future<bool> _chooseDirectory() async {
     try {
       final path = await FirstRunConfig.chooseNotesDirectory(
         _pickedDirectory ? _directoryPath : '',
       );
-      if (!mounted || path == null) return;
+      if (!mounted || path == null) return false;
       setState(() {
         _directoryPath = path;
         _pickedDirectory = true;
         _error = null;
       });
+      return true;
     } catch (error) {
       if (mounted) {
         setState(() => _error = 'No se pudo abrir esa carpeta: $error');
       }
+      return false;
     }
+  }
+
+  Future<void> _continue() async {
+    if (_step == 1 && !_pickedDirectory) {
+      if (await _chooseDirectory() && mounted) {
+        setState(() => _step = 2);
+      }
+      return;
+    }
+    if (_step < 2) setState(() => _step++);
   }
 
   Future<void> _finish() async {
@@ -55,8 +68,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
     });
     try {
       final directory = Directory(_directoryPath);
-      await FileRepository.preserveDefaultNotesIn(directory);
-      await directory.create(recursive: true);
+      await Directory('${directory.path}/Folio').create(recursive: true);
+      await FileRepository(directory: directory).load();
       NotesStorage.directory = directory;
       await FirstRunConfig.finish(_directoryPath);
       if (mounted) widget.onComplete();
@@ -125,7 +138,11 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Preparemos tu espacio',
+                                [
+                                  'Bienvenido a Folio',
+                                  'Elige dónde guardar',
+                                  'Elige tu tema',
+                                ][_step],
                                 style: TextStyle(
                                   color: colors.onSurface,
                                   fontSize: 25,
@@ -140,7 +157,11 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Elige dónde guardar tus apuntes y el tema con el que quieres escribir. Puedes cambiar ambas opciones más adelante.',
+                      [
+                        'Un espacio sencillo para escribir, organizar y conservar tus ideas como archivos Markdown.',
+                        'Elige una carpeta principal. Folio creará dentro una carpeta llamada Folio para tus notas.',
+                        'Puedes cambiar el tema más adelante desde Ajustes.',
+                      ][_step],
                       style: TextStyle(
                         color: colors.onSurfaceVariant,
                         fontSize: 13,
@@ -154,21 +175,158 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                         color: colors.outlineVariant.withValues(alpha: 0.75),
                       ),
                     ),
-                    Row(
-                      children: [
-                        _SectionGlyph(
-                          icon: CupertinoIcons.folder,
-                          color: colors.primary,
+                    if (_step == 0)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(15),
+                          border: Border.all(color: colors.outlineVariant),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
+                        child: Row(
+                          children: [
+                            Icon(
+                              CupertinoIcons.doc_text,
+                              size: 34,
+                              color: colors.primary,
+                            ),
+                            const SizedBox(width: 15),
+                            Expanded(
+                              child: Text(
+                                'Tus notas serán archivos Markdown normales. Podrás verlas y abrirlas desde Finder o cualquier editor compatible.',
+                                style: TextStyle(
+                                  color: colors.onSurface,
+                                  fontSize: 13,
+                                  height: 1.5,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (_step == 1) ...[
+                      Row(
+                        children: [
+                          _SectionGlyph(
+                            icon: CupertinoIcons.folder,
+                            color: colors.primary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _SectionTitle(title: 'Carpeta de notas'),
+                                const SizedBox(height: 3),
+                                Text(
+                                  'Tus apuntes se guardarán aquí como archivos locales.',
+                                  style: TextStyle(
+                                    color: colors.onSurfaceVariant,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                        decoration: BoxDecoration(
+                          color: colors.surfaceContainerLow,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: colors.outlineVariant),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              CupertinoIcons.folder_fill,
+                              color: colors.primary,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: SelectableText(
+                                _directoryPath,
+                                maxLines: 2,
+                                style: TextStyle(
+                                  color: colors.onSurface,
+                                  fontSize: 11,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                            CupertinoButton(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              minimumSize: Size.zero,
+                              onPressed: _busy ? null : _chooseDirectory,
+                              child: Text(
+                                _pickedDirectory ? 'Cambiar…' : 'Confirmar…',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: colors.primary.withValues(alpha: 0.07),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              CupertinoIcons.doc_text,
+                              size: 16,
+                              color: colors.primary,
+                            ),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Text(
+                                'Las notas Markdown se guardarán en: ${_directoryPath}/Folio',
+                                style: TextStyle(
+                                  color: colors.onSurface,
+                                  fontSize: 11,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Si Folio ya existe en esa ubicación, se conservará y se usará. Al confirmar, macOS pedirá permiso para acceder a la carpeta y mantenerlo entre sesiones. Folio está diseñado para discos locales; las unidades de red o sincronizadas por terceros no están dentro del soporte garantizado.',
+                        style: TextStyle(
+                          color: colors.onSurfaceVariant,
+                          fontSize: 10,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                    if (_step == 2) ...[
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          _SectionGlyph(
+                            icon: CupertinoIcons.sun_max,
+                            color: colors.primary,
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _SectionTitle(title: 'Carpeta de notas'),
+                              _SectionTitle(title: 'Tema'),
                               const SizedBox(height: 3),
                               Text(
-                                'Tus apuntes se guardarán aquí como archivos locales.',
+                                'Elige la paleta de colores que prefieras.',
                                 style: TextStyle(
                                   color: colors.onSurfaceVariant,
                                   fontSize: 11,
@@ -176,88 +334,25 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceContainerLow,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: colors.outlineVariant),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            CupertinoIcons.folder_fill,
-                            color: colors.primary,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: SelectableText(
-                              _directoryPath,
-                              maxLines: 2,
-                              style: TextStyle(
-                                color: colors.onSurface,
-                                fontSize: 11,
-                                height: 1.35,
-                              ),
-                            ),
-                          ),
-                          CupertinoButton(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            minimumSize: Size.zero,
-                            onPressed: _busy ? null : _chooseDirectory,
-                            child: const Text('Elegir carpeta'),
-                          ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                    Row(
-                      children: [
-                        _SectionGlyph(
-                          icon: CupertinoIcons.sun_max,
-                          color: colors.primary,
-                        ),
-                        const SizedBox(width: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _SectionTitle(title: 'Tema'),
-                            const SizedBox(height: 3),
-                            Text(
-                              'Elige el aspecto que prefieras.',
-                              style: TextStyle(
-                                color: colors.onSurfaceVariant,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 9,
-                      runSpacing: 9,
-                      children: AppTheme.values.map((theme) {
-                        final selected = theme == _theme;
-                        return _ThemeChoice(
-                          theme: theme,
-                          selected: selected,
-                          onTap: () {
-                            setState(() => _theme = theme);
-                            AppAppearance.instance.choose(theme);
-                          },
-                        );
-                      }).toList(),
-                    ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 9,
+                        runSpacing: 9,
+                        children: AppTheme.values.map((theme) {
+                          final selected = theme == _theme;
+                          return _ThemeChoice(
+                            theme: theme,
+                            selected: selected,
+                            onTap: () {
+                              setState(() => _theme = theme);
+                              AppAppearance.instance.choose(theme);
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
                     if (_error != null) ...[
                       const SizedBox(height: 18),
                       Container(
@@ -293,9 +388,16 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                       padding: const EdgeInsets.only(top: 26),
                       child: Row(
                         children: [
+                          if (_step > 0)
+                            CupertinoButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => setState(() => _step--),
+                              child: const Text('Atrás'),
+                            ),
                           Expanded(
                             child: Text(
-                              'Tus preferencias se guardan en este Mac.',
+                              'PASO ${_step + 1} DE 3',
                               style: TextStyle(
                                 color: colors.onSurfaceVariant,
                                 fontSize: 11,
@@ -303,7 +405,11 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                             ),
                           ),
                           CupertinoButton.filled(
-                            onPressed: _busy ? null : _finish,
+                            onPressed: _busy
+                                ? null
+                                : _step < 2
+                                ? _continue
+                                : _finish,
                             padding: const EdgeInsets.symmetric(
                               horizontal: 18,
                               vertical: 11,
@@ -313,11 +419,15 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 if (_busy)
-                                  const CupertinoActivityIndicator(
-                                    color: CupertinoColors.white,
+                                  CupertinoActivityIndicator(
+                                    color: colors.onPrimary,
                                   )
                                 else ...[
-                                  const Text('Empezar a escribir'),
+                                  Text(
+                                    _step < 2
+                                        ? 'Continuar'
+                                        : 'Empezar a escribir',
+                                  ),
                                   const SizedBox(width: 8),
                                   const Icon(
                                     CupertinoIcons.arrow_right,
@@ -385,38 +495,11 @@ class _ThemeChoice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final (label, background, foreground, accent) = switch (theme) {
-      AppTheme.claro => (
-        'Claro',
-        const Color(0xfffbfaf7),
-        const Color(0xff252a30),
-        const Color(0xff315f91),
-      ),
-      AppTheme.oscuro => (
-        'Oscuro',
-        const Color(0xff202126),
-        const Color(0xffeeeef2),
-        const Color(0xffaac8ff),
-      ),
-      AppTheme.sepia => (
-        'Sepia',
-        const Color(0xfff5ecdd),
-        const Color(0xff433729),
-        const Color(0xff8e5725),
-      ),
-      AppTheme.bosque => (
-        'Bosque',
-        const Color(0xfff0f5ef),
-        const Color(0xff26382e),
-        const Color(0xff356449),
-      ),
-      AppTheme.gruvbox => (
-        'Gruvbox Dark',
-        const Color(0xff282828),
-        const Color(0xffebdbb2),
-        const Color(0xffd65d0e),
-      ),
-    };
+    final label = theme.label;
+    final preview = buildEditorTheme(theme).colorScheme;
+    final background = preview.surface;
+    final foreground = preview.onSurface;
+    final accent = preview.primary;
     return MacosTooltip(
       message: 'Usar tema $label',
       child: CupertinoButton(

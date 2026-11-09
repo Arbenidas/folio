@@ -5,12 +5,46 @@ import AVFoundation
 import Sparkle
 
 class MainFlutterWindow: NSWindow {
+  // Matches FolioWindowChrome.toolbarHeight in Flutter.
+  private let folioToolbarHeight: CGFloat = 40
   private var updaterController: SPUStandardUpdaterController?
+
+  override func sendEvent(_ event: NSEvent) {
+    guard event.type == .leftMouseDown,
+          isKeyWindow,
+          isMovable,
+          !styleMask.contains(.fullScreen) else {
+      super.sendEvent(event)
+      return
+    }
+    let point = event.locationInWindow
+    let distanceFromTop = frame.height - point.y
+    if distanceFromTop >= 2,
+       distanceFromTop < folioToolbarHeight,
+       point.x >= 180,
+       point.x <= frame.width - 330 {
+      if event.clickCount == 2 {
+        performZoom(nil)
+        return
+      }
+      if event.clickCount == 1 {
+        performDrag(with: event)
+        return
+      }
+    }
+    super.sendEvent(event)
+  }
 
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
     self.contentViewController = flutterViewController
+    self.styleMask.insert(.fullSizeContentView)
+    self.titleVisibility = .hidden
+    self.titlebarAppearsTransparent = true
+    if #available(macOS 11.0, *) {
+      self.titlebarSeparatorStyle = .none
+    }
     self.setFrame(NSRect(origin: windowFrame.origin, size: NSSize(width: 1180, height: 780)), display: true)
     self.minSize = NSSize(width: 800, height: 620)
     self.center()
@@ -19,6 +53,42 @@ class MainFlutterWindow: NSWindow {
       name: "apuntes/keyboard",
       binaryMessenger: flutterViewController.engine.binaryMessenger
     )
+    let clipboardChannel = FlutterMethodChannel(
+      name: "folio/clipboard",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    clipboardChannel.setMethodCallHandler { call, result in
+      guard call.method == "readPng" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      let pasteboard = NSPasteboard.general
+      if let text = pasteboard.string(forType: .string), !text.isEmpty {
+        result(nil)
+        return
+      }
+      let limit = 20 * 1024 * 1024
+      let tooLarge = FlutterError(
+        code: "imageTooLarge", message: "Pega una captura de hasta 20 MB.", details: nil
+      )
+      var png = pasteboard.data(forType: .png)
+      if png == nil, let tiff = pasteboard.data(forType: .tiff) {
+        guard tiff.count <= limit else {
+          result(tooLarge)
+          return
+        }
+        png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+      }
+      guard let png else {
+        result(nil)
+        return
+      }
+      guard png.count <= limit else {
+        result(tooLarge)
+        return
+      }
+      result(FlutterStandardTypedData(bytes: png))
+    }
     var keySoundPlayers: [AVAudioPlayer] = []
     var keySoundData: Data?
     var nextKeySound = 0
@@ -80,7 +150,8 @@ class MainFlutterWindow: NSWindow {
       if call.method == "loadInitialSetup" {
         result([
           "isComplete": defaults.bool(forKey: "folioInitialSetupComplete"),
-          "notesDirectory": defaults.string(forKey: "folioNotesDirectory") as Any? ?? NSNull()
+          "notesDirectory": defaults.string(forKey: "folioNotesDirectory") as Any? ?? NSNull(),
+          "homeDirectory": NSHomeDirectory()
         ])
         return
       }
@@ -107,6 +178,15 @@ class MainFlutterWindow: NSWindow {
             return
           }
           do {
+            let isLocal = try url.resourceValues(forKeys: [.volumeIsLocalKey]).volumeIsLocal
+            guard isLocal == true else {
+              result(FlutterError(
+                code: "unsupported_remote_volume",
+                message: "Folio solo admite carpetas en volúmenes locales.",
+                details: nil
+              ))
+              return
+            }
             let bookmark = try url.bookmarkData(
               options: [.withSecurityScope],
               includingResourceValuesForKeys: nil,
@@ -153,12 +233,15 @@ class MainFlutterWindow: NSWindow {
         result(nil)
         return
       }
-      if call.method == "getTheme" {
-        result(defaults.string(forKey: "apuntesTheme") ?? "claro")
+      if call.method == "getAppearance" {
+        let appearance = defaults.dictionary(forKey: "folioAppearance")
+          ?? ["theme": defaults.string(forKey: "apuntesTheme") ?? "claro"]
+        result(appearance)
         return
       }
-      if call.method == "setTheme", let theme = call.arguments as? String {
-        defaults.set(theme, forKey: "apuntesTheme")
+      if call.method == "setAppearance", let appearance = call.arguments as? [String: String],
+         let theme = appearance["theme"], let style = appearance["style"] {
+        defaults.set(["theme": theme, "style": style], forKey: "folioAppearance")
         result(nil)
         return
       }

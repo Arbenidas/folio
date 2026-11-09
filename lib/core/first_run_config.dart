@@ -18,7 +18,6 @@ class FirstRunConfig {
 
   static Future<FirstRunConfig> load() async {
     final supportDirectory = await getApplicationSupportDirectory();
-    final defaultDirectory = Directory('${supportDirectory.path}/cuaderno');
     final local = await _readLocal(supportDirectory);
     Map<String, Object?>? values;
     try {
@@ -30,12 +29,16 @@ class FirstRunConfig {
     }
     final selectedPath =
         values?['notesDirectory'] as String? ??
-        local?['notesDirectory'] as String?;
+        local?['notesDirectory'] as String? ??
+        values?['homeDirectory'] as String? ??
+        Platform.environment['HOME'];
     return FirstRunConfig(
       isComplete:
           (values?['isComplete'] as bool? ?? false) ||
           (local?['isComplete'] as bool? ?? false),
-      notesDirectory: Directory(selectedPath ?? defaultDirectory.path),
+      notesDirectory: Directory(
+        selectedPath ?? '${supportDirectory.path}/cuaderno',
+      ),
     );
   }
 
@@ -46,18 +49,15 @@ class FirstRunConfig {
 
   static Future<void> finish(String directoryPath) async {
     final supportDirectory = await getApplicationSupportDirectory();
-    var savedNatively = false;
     try {
       await _channel
           .invokeMethod<void>('completeInitialSetup', directoryPath)
           .timeout(_timeout);
-      savedNatively = true;
     } catch (_) {
-      // Keep a local fallback so a stalled platform channel cannot trap the
-      // user in the first-run screen. Native bookmarks are still preferred
-      // whenever the macOS channel is available.
+      if (Platform.isMacOS) rethrow;
+      // Non-macOS development fallbacks retain setup without a native runner.
     }
-    if (!savedNatively) {
+    if (!Platform.isMacOS) {
       final config = File('${supportDirectory.path}/folio_initial_setup.json');
       await config.writeAsString(
         jsonEncode({'isComplete': true, 'notesDirectory': directoryPath}),
