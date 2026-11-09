@@ -106,13 +106,25 @@ jobs:
           if [[ "$RELEASE_TAG" == *-* ]]; then
             release_options+=(--prerelease)
           fi
-          gh release create "$RELEASE_TAG" \
-            "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.zip" \
-            "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.md" \
-            "$RUNNER_TEMP/updates/appcast.xml" \
-            --title "Folio ${RELEASE_TAG#v}" \
-            --notes-file "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.md" \
-            --verify-tag "${release_options[@]}"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.zip" \
+              "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.md" \
+              "$RUNNER_TEMP/updates/appcast.xml" \
+              --clobber
+            gh release edit "$RELEASE_TAG" \
+              --title "Folio ${RELEASE_TAG#v}" \
+              --notes-file "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.md" \
+              "${release_options[@]}"
+          else
+            gh release create "$RELEASE_TAG" \
+              "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.zip" \
+              "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.md" \
+              "$RUNNER_TEMP/updates/appcast.xml" \
+              --title "Folio ${RELEASE_TAG#v}" \
+              --notes-file "$RUNNER_TEMP/updates/Folio-${RELEASE_TAG}.md" \
+              --verify-tag "${release_options[@]}"
+          fi
 
       - name: Publish update feed
         env:

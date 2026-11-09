@@ -11,6 +11,7 @@ class VimController extends ChangeNotifier {
     required this.onSearch,
     required this.onLeftPane,
     required this.onRightPane,
+    this.onPreferencesChanged,
   }) {
     _previous = text.value;
     text.addListener(_changed);
@@ -18,13 +19,16 @@ class VimController extends ChangeNotifier {
   final TextEditingController text;
   final ValueChanged<String> onEdit;
   final VoidCallback onSave, onCommand, onSearch, onLeftPane, onRightPane;
-  bool enabled = true;
+  final void Function(bool enabled, String lastSearch)? onPreferencesChanged;
+  bool enabled = false;
   bool insert = false;
+  final Set<LogicalKeyboardKey> _heldModifiers = {};
   String _pending = '';
   String _register = '';
   String lastSearch = '';
   String? message;
-  String? lastKey;
+  List<String> lastKeys = const [];
+  final ValueNotifier<int> keyPressRevision = ValueNotifier(0);
   int? _column;
   late TextEditingValue _previous;
   final List<TextEditingValue> _undo = [], _redo = [];
@@ -63,6 +67,8 @@ class VimController extends ChangeNotifier {
     _undo.clear();
     _redo.clear();
     _pending = '';
+    _heldModifiers.clear();
+    lastKeys = const [];
     _column = null;
     insert = !enabled;
     message = null;
@@ -79,6 +85,14 @@ class VimController extends ChangeNotifier {
     enabled = !enabled;
     insert = !enabled;
     _pending = '';
+    onPreferencesChanged?.call(enabled, lastSearch);
+    notifyListeners();
+  }
+
+  void restorePreferences({required bool enabled, required String lastSearch}) {
+    this.enabled = enabled;
+    this.lastSearch = lastSearch;
+    insert = !enabled;
     notifyListeners();
   }
 
@@ -189,6 +203,7 @@ class VimController extends ChangeNotifier {
   bool search(String query, {bool backwards = false}) {
     if (query.isEmpty) return false;
     lastSearch = query;
+    onPreferencesChanged?.call(enabled, lastSearch);
     final value = text.text;
     var match = backwards
         ? (cursor > 0 ? value.lastIndexOf(query, cursor - 1) : -1)
@@ -206,20 +221,107 @@ class VimController extends ChangeNotifier {
     return true;
   }
 
+  void recordKeyEvent(KeyEvent event) {
+    final key = event.logicalKey;
+    if (event is KeyUpEvent) {
+      _heldModifiers.remove(key);
+      return;
+    }
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return;
+
+    if (_modifierLabel(key) != null) _heldModifiers.add(key);
+    final keyboard = HardwareKeyboard.instance;
+    final control =
+        keyboard.isControlPressed ||
+        _modifierHeld(
+          LogicalKeyboardKey.controlLeft,
+          LogicalKeyboardKey.controlRight,
+        );
+    final option =
+        keyboard.isAltPressed ||
+        _modifierHeld(LogicalKeyboardKey.altLeft, LogicalKeyboardKey.altRight);
+    final shift =
+        keyboard.isShiftPressed ||
+        _modifierHeld(
+          LogicalKeyboardKey.shiftLeft,
+          LogicalKeyboardKey.shiftRight,
+        ) ||
+        _isShiftedCharacter(event.character);
+    final command =
+        keyboard.isMetaPressed ||
+        _modifierHeld(
+          LogicalKeyboardKey.metaLeft,
+          LogicalKeyboardKey.metaRight,
+        );
+
+    final keys = <String>[
+      if (control) '⌃',
+      if (option) '⌥',
+      if (shift) '⇧',
+      if (command) '⌘',
+    ];
+    final pressedKey = _displayKey(key, event.character);
+    if (pressedKey != null) keys.add(pressedKey);
+    if (keys.isEmpty) return;
+
+    lastKeys = List.unmodifiable(keys);
+    keyPressRevision.value++;
+  }
+
+  bool _modifierHeld(LogicalKeyboardKey left, LogicalKeyboardKey right) =>
+      _heldModifiers.contains(left) || _heldModifiers.contains(right);
+
+  String? _modifierLabel(LogicalKeyboardKey key) => switch (key) {
+    LogicalKeyboardKey.controlLeft || LogicalKeyboardKey.controlRight => '⌃',
+    LogicalKeyboardKey.altLeft || LogicalKeyboardKey.altRight => '⌥',
+    LogicalKeyboardKey.shiftLeft || LogicalKeyboardKey.shiftRight => '⇧',
+    LogicalKeyboardKey.metaLeft || LogicalKeyboardKey.metaRight => '⌘',
+    _ => null,
+  };
+
+  void clearHeldModifiers() => _heldModifiers.clear();
+
+  bool _isShiftedCharacter(String? character) {
+    if (character == null || character.isEmpty) return false;
+    final hasUppercase =
+        character.toUpperCase() == character &&
+        character.toLowerCase() != character;
+    const shiftedSymbols = r'!@#$%^&*()_+{}|:"<>?~';
+    return hasUppercase || shiftedSymbols.contains(character);
+  }
+
+  String? _displayKey(LogicalKeyboardKey key, String? character) {
+    if (_modifierLabel(key) != null) return null;
+
+    final special = switch (key) {
+      LogicalKeyboardKey.space => 'Space',
+      LogicalKeyboardKey.backspace => '⌫',
+      LogicalKeyboardKey.delete => '⌦',
+      LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter => '↵',
+      LogicalKeyboardKey.tab => '⇥',
+      LogicalKeyboardKey.escape => 'Esc',
+      LogicalKeyboardKey.arrowUp => '↑',
+      LogicalKeyboardKey.arrowDown => '↓',
+      LogicalKeyboardKey.arrowLeft => '←',
+      LogicalKeyboardKey.arrowRight => '→',
+      LogicalKeyboardKey.home => '↖',
+      LogicalKeyboardKey.end => '↘',
+      LogicalKeyboardKey.pageUp => '⇞',
+      LogicalKeyboardKey.pageDown => '⇟',
+      _ => null,
+    };
+    if (special != null) return special;
+
+    if (character != null && character.trim().isNotEmpty) {
+      return character.toUpperCase();
+    }
+    final label = key.keyLabel;
+    if (label.isEmpty) return null;
+    return label.length == 1 ? label.toUpperCase() : label;
+  }
+
   KeyEventResult handle(FocusNode node, KeyEvent event) {
     if (event is KeyUpEvent) return KeyEventResult.ignored;
-    if (event.character != null && event.character!.trim().isNotEmpty) {
-      lastKey = event.character;
-    } else {
-      lastKey = switch (event.logicalKey) {
-        LogicalKeyboardKey.space => 'Space',
-        LogicalKeyboardKey.enter => 'Enter',
-        LogicalKeyboardKey.backspace => '⌫',
-        LogicalKeyboardKey.tab => 'Tab',
-        LogicalKeyboardKey.escape => 'Esc',
-        _ => null,
-      };
-    }
     if (!enabled) {
       notifyListeners();
       return KeyEventResult.ignored;
@@ -358,6 +460,7 @@ class VimController extends ChangeNotifier {
 
   @override
   void dispose() {
+    keyPressRevision.dispose();
     text.removeListener(_changed);
     super.dispose();
   }

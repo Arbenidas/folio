@@ -5,7 +5,9 @@ import 'package:macos_ui/macos_ui.dart';
 import '../../../../core/widgets/app_icon_button.dart';
 
 class MarkdownHelp extends StatefulWidget {
-  const MarkdownHelp({super.key});
+  const MarkdownHelp({super.key, this.onReplayTour});
+
+  final VoidCallback? onReplayTour;
 
   @override
   State<MarkdownHelp> createState() => _MarkdownHelpState();
@@ -49,7 +51,10 @@ class _MarkdownHelpState extends State<MarkdownHelp> {
     ('⌘K  ·  ⌘F', 'Búsqueda rápida / buscar en la nota'),
     ('⌘1  ·  ⌘2  ·  ⌘3', 'Enfocar notas / editor / vista previa'),
     ('F1  ·  ?', 'Abrir esta ayuda'),
-    ('Ctrl+H  ·  Ctrl+L', 'Desde Vim NORMAL: notas / vista previa'),
+    (
+      'Ctrl+H  ·  Ctrl+L',
+      'En Vim: ir a notas / vista previa desde cualquier panel',
+    ),
     ('j  ·  k  ·  Enter', 'En notas: moverte y abrir la nota'),
     ('j  ·  k  ·  h', 'En vista previa: desplazar y volver al editor'),
   ];
@@ -194,7 +199,9 @@ class _MarkdownHelpState extends State<MarkdownHelp> {
               Icon(
                 icon,
                 size: 17,
-                color: selected ? colors.primary : colors.onSurfaceVariant,
+                color: selected
+                    ? colors.onSecondaryContainer
+                    : colors.onSurfaceVariant,
               ),
               const SizedBox(width: 9),
               Expanded(
@@ -218,7 +225,7 @@ class _MarkdownHelpState extends State<MarkdownHelp> {
                       subtitle,
                       style: TextStyle(
                         color: selected
-                            ? colors.onSecondaryContainer.withValues(alpha: 0.8)
+                            ? colors.onSecondaryContainer
                             : colors.onSurfaceVariant,
                         fontSize: 9,
                       ),
@@ -285,6 +292,27 @@ class _MarkdownHelpState extends State<MarkdownHelp> {
                     colors: colors,
                   ),
                   const Spacer(),
+                  if (widget.onReplayTour != null)
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 8,
+                      ),
+                      alignment: Alignment.centerLeft,
+                      onPressed: widget.onReplayTour,
+                      child: const Row(
+                        children: [
+                          Icon(CupertinoIcons.play_circle, size: 15),
+                          SizedBox(width: 7),
+                          Flexible(
+                            child: Text(
+                              'Repetir recorrido',
+                              style: TextStyle(fontSize: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 9),
                     child: Text(

@@ -39,17 +39,19 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    final selected = appearance.selected;
+    final theme = buildEditorTheme(appearance.selected, appearance.style);
+    final macosTheme = buildEditorMacosTheme(theme);
     return MacosApp(
       title: 'Folio',
       debugShowCheckedModeBanner: false,
-      theme: buildEditorMacosTheme(selected),
+      themeMode: macosTheme.brightness == Brightness.dark
+          ? ThemeMode.dark
+          : ThemeMode.light,
+      theme: macosTheme,
+      darkTheme: macosTheme,
       builder: (context, child) => CupertinoTheme(
-        data: buildEditorCupertinoTheme(selected),
-        child: Theme(
-          data: buildEditorTheme(selected),
-          child: child ?? const SizedBox.shrink(),
-        ),
+        data: buildEditorCupertinoTheme(theme),
+        child: Theme(data: theme, child: child ?? const SizedBox.shrink()),
       ),
       // Keep the Navigator's initial route stable. StartupGate owns loading
       // state and switches to onboarding/editor after the async read completes.

@@ -1,23 +1,129 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:macos_ui/macos_ui.dart';
 
-enum AppTheme { claro, oscuro, sepia, bosque, gruvbox }
+enum AppTheme {
+  claro('Claro', 'Papel limpio con acentos azul tinta'),
+  oscuro('Oscuro', 'Grafito con azul frío y lavanda'),
+  sepia('Sepia', 'Papel cálido y acentos cobre'),
+  bosque('Bosque', 'Salvia suave y verde profundo'),
+  gruvbox('Gruvbox Dark', 'Oscuro cálido con acento naranja Gruvbox'),
+  crema('Crema', 'Papel crema con acentos verde oliva'),
+  vivo('Vivo', 'Amarillo, violeta, verde lima y rosa');
+
+  const AppTheme(this.label, this.description);
+
+  final String label;
+  final String description;
+}
+
+enum AppStyle {
+  clasico('Clásico', 'Líneas finas y superficies limpias'),
+  retro('Retro', 'Marcos de tinta y árbol de carpetas'),
+  pop('Pop', 'Tarjetas redondeadas y sombras marcadas');
+
+  const AppStyle(this.label, this.description);
+
+  final String label;
+  final String description;
+}
+
+class FolioStyle extends ThemeExtension<FolioStyle> {
+  const FolioStyle(this.kind, this.theme, this.colors);
+
+  static FolioStyle of(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.extension<FolioStyle>() ??
+        FolioStyle(AppStyle.clasico, AppTheme.claro, theme.colorScheme);
+  }
+
+  final AppStyle kind;
+  final AppTheme theme;
+  final ColorScheme colors;
+  bool get isGraphic => kind != AppStyle.clasico;
+  bool get isRetro => kind == AppStyle.retro;
+  bool get isPop => kind == AppStyle.pop;
+
+  Color get ink => colors.onSurface;
+  Color get shadow =>
+      colors.brightness == Brightness.dark ? colors.shadow : ink;
+  Color get accent => folderAccent(0);
+  Color get onAccent => folderForeground(0);
+  double get radius => isRetro ? 7 : 13;
+  double get lineWidth => isRetro ? 2 : 2.5;
+
+  RoundedRectangleBorder get outline => RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(radius),
+    side: BorderSide(color: ink, width: lineWidth),
+  );
+
+  BoxDecoration panel(Color color, {double lift = 0}) => BoxDecoration(
+    color: color,
+    border: Border.all(color: ink, width: lineWidth),
+    borderRadius: BorderRadius.circular(radius),
+    boxShadow: [
+      if (lift > 0) BoxShadow(color: shadow, offset: Offset(lift, lift)),
+    ],
+  );
+
+  (Color, Color) _folderColors(int index) {
+    final slot = index % 4;
+    if (_ThemePalette.forTheme(theme).graphicAccents case final accents?) {
+      return (accents[slot], colors.onSurface);
+    }
+    return switch (slot) {
+      0 => (colors.secondaryContainer, colors.onSecondaryContainer),
+      1 => (colors.primaryContainer, colors.onPrimaryContainer),
+      2 => (colors.tertiaryContainer, colors.onTertiaryContainer),
+      _ => (colors.surfaceContainerHighest, colors.onSurface),
+    };
+  }
+
+  Color folderAccent(int index) => _folderColors(index).$1;
+  Color folderForeground(int index) => _folderColors(index).$2;
+
+  @override
+  FolioStyle copyWith({AppStyle? kind, AppTheme? theme, ColorScheme? colors}) =>
+      FolioStyle(kind ?? this.kind, theme ?? this.theme, colors ?? this.colors);
+
+  @override
+  FolioStyle lerp(FolioStyle? other, double t) =>
+      other == null || t < 0.5 ? this : other;
+}
 
 class AppAppearance extends ChangeNotifier {
   AppAppearance._();
   static final AppAppearance instance = AppAppearance._();
+  static const _channel = MethodChannel('apuntes/keyboard');
+
   AppTheme selected = AppTheme.claro;
+  AppStyle style = AppStyle.clasico;
 
   Future<void> load() async {
     try {
-      final name = await const MethodChannel(
-        'apuntes/keyboard',
-      ).invokeMethod<String>('getTheme');
-      selected = AppTheme.values.firstWhere(
-        (theme) => theme.name == name,
-        orElse: () => AppTheme.claro,
+      final saved = await _channel.invokeMapMethod<String, String>(
+        'getAppearance',
+      );
+      if (saved == null) return;
+      final name = saved['theme'];
+      final (theme, fallbackStyle) = switch (name) {
+        'retro' => (AppTheme.crema, AppStyle.retro),
+        'pop' => (AppTheme.vivo, AppStyle.pop),
+        _ => (
+          AppTheme.values.firstWhere(
+            (theme) => theme.name == name,
+            orElse: () => AppTheme.claro,
+          ),
+          AppStyle.clasico,
+        ),
+      };
+      selected = theme;
+      style = AppStyle.values.firstWhere(
+        (style) => style.name == saved['style'],
+        orElse: () => fallbackStyle,
       );
       notifyListeners();
     } catch (_) {}
@@ -26,13 +132,29 @@ class AppAppearance extends ChangeNotifier {
   void choose(AppTheme theme) {
     selected = theme;
     notifyListeners();
-    const MethodChannel(
-      'apuntes/keyboard',
-    ).invokeMethod<void>('setTheme', theme.name);
+    unawaited(_save());
+  }
+
+  void chooseStyle(AppStyle value) {
+    style = value;
+    notifyListeners();
+    unawaited(_save());
+  }
+
+  Future<void> _save() async {
+    try {
+      await _channel.invokeMethod<void>('setAppearance', {
+        'theme': selected.name,
+        'style': style.name,
+      });
+    } catch (_) {}
   }
 }
 
-ThemeData buildEditorTheme([AppTheme theme = AppTheme.claro]) {
+ThemeData buildEditorTheme([
+  AppTheme theme = AppTheme.claro,
+  AppStyle kind = AppStyle.clasico,
+]) {
   final palette = _ThemePalette.forTheme(theme);
   final scheme =
       ColorScheme.fromSeed(
@@ -54,6 +176,7 @@ ThemeData buildEditorTheme([AppTheme theme = AppTheme.claro]) {
         surfaceContainerHighest: palette.surfaceHighest,
         outlineVariant: palette.outline,
       );
+  final style = FolioStyle(kind, theme, scheme);
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
@@ -63,6 +186,28 @@ ThemeData buildEditorTheme([AppTheme theme = AppTheme.claro]) {
       surfaceTintColor: Colors.transparent,
     ),
     dividerColor: scheme.outlineVariant,
+    extensions: [style],
+    dialogTheme: style.isGraphic
+        ? DialogThemeData(
+            backgroundColor: scheme.surface,
+            surfaceTintColor: Colors.transparent,
+            shape: style.outline,
+          )
+        : null,
+    popupMenuTheme: style.isGraphic
+        ? PopupMenuThemeData(shape: style.outline, elevation: 0)
+        : null,
+    filledButtonTheme: style.isGraphic
+        ? FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              backgroundColor: style.accent,
+              foregroundColor: style.onAccent,
+              shape: style.outline.copyWith(side: BorderSide.none),
+              side: style.outline.side,
+              textStyle: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          )
+        : null,
   );
 }
 
@@ -83,6 +228,7 @@ class _ThemePalette {
     required this.surfaceHigh,
     required this.surfaceHighest,
     required this.outline,
+    this.graphicAccents,
   });
 
   final Brightness brightness;
@@ -100,6 +246,7 @@ class _ThemePalette {
   final Color surfaceHigh;
   final Color surfaceHighest;
   final Color outline;
+  final List<Color>? graphicAccents;
 
   static _ThemePalette forTheme(AppTheme theme) => switch (theme) {
     AppTheme.claro => const _ThemePalette(
@@ -172,7 +319,7 @@ class _ThemePalette {
     ),
     AppTheme.gruvbox => const _ThemePalette(
       brightness: Brightness.dark,
-      primary: Color(0xffd65d0e),
+      primary: Color(0xfffe9c55),
       onPrimary: Color(0xff282828),
       secondary: Color(0xff83a598),
       onSecondary: Color(0xff282828),
@@ -187,17 +334,55 @@ class _ThemePalette {
       surfaceHighest: Color(0xff665c54),
       outline: Color(0xff665c54),
     ),
+    AppTheme.crema => const _ThemePalette(
+      brightness: Brightness.light,
+      primary: Color(0xff28592f),
+      onPrimary: Color(0xffffffff),
+      secondary: Color(0xff4c5a39),
+      onSecondary: Color(0xffffffff),
+      secondaryContainer: Color(0xffbae5a2),
+      onSecondaryContainer: Color(0xff232b1e),
+      surface: Color(0xfff7f1e2),
+      onSurface: Color(0xff292a22),
+      surfaceLowest: Color(0xfffffbef),
+      surfaceLow: Color(0xfff1ead7),
+      surfaceMid: Color(0xffede5d0),
+      surfaceHigh: Color(0xfff7f1e2),
+      surfaceHighest: Color(0xffe4dbc3),
+      outline: Color(0xff292a22),
+    ),
+    AppTheme.vivo => const _ThemePalette(
+      brightness: Brightness.light,
+      primary: Color(0xff513393),
+      onPrimary: Color(0xffffffff),
+      secondary: Color(0xff7d2250),
+      onSecondary: Color(0xffffffff),
+      secondaryContainer: Color(0xffffda53),
+      onSecondaryContainer: Color(0xff17131d),
+      surface: Color(0xfffffaf1),
+      onSurface: Color(0xff17131d),
+      surfaceLowest: Color(0xffffffff),
+      surfaceLow: Color(0xfff7f0ff),
+      surfaceMid: Color(0xffffedab),
+      surfaceHigh: Color(0xfffffaf1),
+      surfaceHighest: Color(0xffe8daff),
+      outline: Color(0xff17131d),
+      graphicAccents: [
+        Color(0xffffd430),
+        Color(0xffa3e958),
+        Color(0xffff87b3),
+        Color(0xffc8b6ff),
+      ],
+    ),
   };
 }
 
-CupertinoThemeData buildEditorCupertinoTheme([
-  AppTheme theme = AppTheme.claro,
-]) {
-  final material = buildEditorTheme(theme);
+CupertinoThemeData buildEditorCupertinoTheme(ThemeData material) {
   final colorScheme = material.colorScheme;
   return CupertinoThemeData(
     brightness: material.brightness,
     primaryColor: colorScheme.primary,
+    primaryContrastingColor: colorScheme.onPrimary,
     scaffoldBackgroundColor: material.scaffoldBackgroundColor,
     barBackgroundColor: material.scaffoldBackgroundColor.withValues(
       alpha: 0.96,
@@ -214,12 +399,12 @@ CupertinoThemeData buildEditorCupertinoTheme([
   );
 }
 
-MacosThemeData buildEditorMacosTheme([AppTheme theme = AppTheme.claro]) {
-  final material = buildEditorTheme(theme);
+MacosThemeData buildEditorMacosTheme(ThemeData material) {
   final colorScheme = material.colorScheme;
   return MacosThemeData(
     brightness: colorScheme.brightness,
     primaryColor: colorScheme.primary,
+    typography: MacosTypography(color: colorScheme.onSurface),
     canvasColor: colorScheme.surface,
     dividerColor: colorScheme.outlineVariant,
   );
