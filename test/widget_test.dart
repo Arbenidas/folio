@@ -147,15 +147,19 @@ class EmptyRecoveredDrafts extends RecoveredDraftsRepository {
 VimController makeVim(
   TextEditingController text, {
   ValueChanged<String>? onEdit,
-}) => VimController(
-  text,
-  onEdit: onEdit ?? (_) {},
-  onSave: () {},
-  onCommand: () {},
-  onSearch: () {},
-  onLeftPane: () {},
-  onRightPane: () {},
-);
+}) {
+  final vim = VimController(
+    text,
+    onEdit: onEdit ?? (_) {},
+    onSave: () {},
+    onCommand: () {},
+    onSearch: () {},
+    onLeftPane: () {},
+    onRightPane: () {},
+  );
+  vim.toggle();
+  return vim;
+}
 void press(VimController vim, String char) => vim.handle(
   FocusNode(),
   KeyDownEvent(
@@ -366,7 +370,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 20));
       await tester.sendKeyEvent(LogicalKeyboardKey.keyJ, character: 'j');
       await tester.pumpAndSettle();
-      expect(markdown.controller.offset, closeTo(60, 0.1));
+      expect(markdown.controller.offset, closeTo(120, 0.1));
       expect(tester.takeException(), isNull);
       await c.save();
       await tester.pumpWidget(const SizedBox());
@@ -687,6 +691,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('VISTA PREVIA'), findsOneWidget);
+      await tester.tap(find.text('Vim'));
+      await tester.pumpAndSettle();
       expect(find.text('NORMAL'), findsOneWidget);
       expect(find.text('Estudio'), findsNothing);
       expect(tester.takeException(), isNull);
