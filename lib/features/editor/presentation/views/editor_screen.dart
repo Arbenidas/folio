@@ -9,17 +9,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import '../../../../core/widgets/app_icon_button.dart';
+import '../../../../core/widgets/folio_window_chrome.dart';
+import '../../../../core/theme.dart';
 import '../controllers/editor_notifier.dart';
 import '../controllers/vim_controller.dart';
 import '../../domain/markdown_document.dart';
+import '../../domain/note_template.dart';
+import '../../domain/trashed_note.dart';
+import '../../data/recovered_drafts_repository.dart';
 import '../widgets/editor_pane.dart';
+import '../widgets/editor_action_menu.dart';
 import '../widgets/editor_motion.dart';
 import '../widgets/markdown_preview.dart';
 import '../widgets/markdown_help.dart';
 import '../widgets/notes_sidebar.dart';
 import '../widgets/quick_search_dialog.dart';
+import '../widgets/template_picker.dart';
 import '../../../settings/presentation/views/settings_screen.dart';
 import '../../../../core/first_run_config.dart';
+import '../../../../core/onboarding_preferences.dart';
+import '../../../../core/vim_preferences.dart';
+import '../../../onboarding/presentation/widgets/first_run_tour.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({super.key});
@@ -47,21 +57,22 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   int _scrollRevision = 0;
   Uint8List? _typingSound;
   String? _dropFolder;
+  int _vimPreferenceRevision = 0;
+  String _focusedPane = 'editor';
+  bool _editorInteractedBeforePreferencesLoad = false;
   Timer? _dropFolderTimer;
 
   List<_SidebarEntry> get _sidebarEntries {
     final entries = <_SidebarEntry>[];
-    final folders = <String>{};
-    for (final note in _editor.notes) {
-      final path = note.folder;
-      if (path == null) continue;
-      final segments = path.split('/');
-      for (var i = 0; i < segments.length; i++) {
-        folders.add(segments.take(i + 1).join('/'));
-      }
-    }
+    final folders = _editor.folderPaths;
     void appendChildren(String? parent, int depth) {
-      final children = folders.where((path) => _parentFolder(path) == parent);
+      final children =
+          folders.where((path) => _parentFolder(path) == parent).toList()..sort(
+            (a, b) =>
+                _folderTitle(a)
+                    .toLowerCase()
+                    .compareTo(_folderTitle(b).toLowerCase()),
+          );
       for (final folder in children) {
         entries.add(_SidebarEntry.folder(folder, depth));
         if (_collapsedFolders.contains(folder)) continue;
@@ -106,16 +117,36 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     _editor = ref.read(editorProvider);
     _vim = VimController(
       _text,
-      onEdit: (value) => _editor.update(content: value),
+      onEdit: (value) {
+        _editorInteractedBeforePreferencesLoad = true;
+        _editor.update(content: value);
+      },
       onSave: _editor.save,
       onCommand: _command,
       onSearch: _search,
       onLeftPane: _focusNotes,
       onRightPane: _focusPreview,
+      onPreferencesChanged: (enabled, lastSearch) {
+        _vimPreferenceRevision++;
+        unawaited(
+          VimPreferences.save(enabled: enabled, lastSearch: lastSearch),
+        );
+      },
     );
     _editFocus.onKeyEvent = (node, event) {
+      _vim.recordKeyEvent(event);
       final shortcut = _handleGlobalShortcut(event);
       if (shortcut != KeyEventResult.ignored) return shortcut;
+      final keyboard = HardwareKeyboard.instance;
+      if (event is KeyDownEvent &&
+          event.logicalKey == LogicalKeyboardKey.keyV &&
+          keyboard.isMetaPressed &&
+          !keyboard.isShiftPressed &&
+          !keyboard.isAltPressed &&
+          !keyboard.isControlPressed) {
+        unawaited(_paste());
+        return KeyEventResult.handled;
+      }
       if (event is KeyDownEvent &&
           event.character == '?' &&
           _vim.enabled &&
@@ -132,18 +163,35 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           !HardwareKeyboard.instance.isMetaPressed &&
           !HardwareKeyboard.instance.isControlPressed) {
         unawaited(
-          const MethodChannel(
-            'apuntes/keyboard',
-          ).invokeMethod<void>('click').catchError((_) {}),
+          const MethodChannel('apuntes/keyboard')
+              .invokeMethod<void>('click')
+              .catchError((_) {}),
         );
       }
       if (result == KeyEventResult.handled) _revealCursor();
       return result;
     };
     _editor.addListener(_sync);
+    _editFocus.addListener(() {
+      if (_editFocus.hasFocus) {
+        _focusedPane = 'editor';
+      } else {
+        _vim.clearHeldModifiers();
+      }
+    });
+    _notesFocus.addListener(() {
+      if (_notesFocus.hasFocus) _focusedPane = 'notes';
+    });
+    _previewFocus.addListener(() {
+      if (_previewFocus.hasFocus) _focusedPane = 'preview';
+    });
     _sync();
     _lifecycle = AppLifecycleListener(
       onInactive: () => unawaited(_editor.save()),
+      onResume: () async {
+        await _editor.refresh();
+        if (mounted) _restoreEditorFocus();
+      },
       onExitRequested: () async {
         await _editor.save();
         return _editor.saveStatus == 'Error al guardar'
@@ -152,17 +200,114 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       },
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _editFocus.requestFocus();
+      if (!mounted) return;
+      _editFocus.requestFocus();
+      unawaited(_restoreVimPreferences());
+      unawaited(_showTourIfNeeded());
     });
   }
 
+  Future<void> _restoreVimPreferences() async {
+    final revision = _vimPreferenceRevision;
+    final preferences = await VimPreferences.load();
+    if (mounted &&
+        revision == _vimPreferenceRevision &&
+        !_editorInteractedBeforePreferencesLoad) {
+      _vim.restorePreferences(
+        enabled: preferences.enabled,
+        lastSearch: preferences.lastSearch,
+      );
+    }
+  }
+
+  void _restoreEditorFocus() {
+    switch (_focusedPane) {
+      case 'notes':
+        _notesFocus.requestFocus();
+      case 'preview':
+        _previewFocus.requestFocus();
+      default:
+        _editFocus.requestFocus();
+    }
+  }
+
+  Future<void> _showTourIfNeeded() async {
+    if (await OnboardingPreferences.tourCompleted() || !mounted) return;
+    await showFirstRunTour(context);
+    if (mounted) _editFocus.requestFocus();
+  }
+
   void _sync() {
+    final content = _editor.selectedNote?.content ?? '';
     if (!_editor.loading &&
         !_editor.loadFailed &&
-        _currentId != _editor.selectedId) {
+        (_currentId != _editor.selectedId || _text.text != content)) {
       _currentId = _editor.selectedId;
-      _vim.load(_editor.note.content);
+      _vim.load(content);
     }
+  }
+
+  Future<void> _paste() async {
+    final id = _editor.selectedId;
+    if (id == null) return;
+    final repository = _editor.repository;
+    final original = _text.value;
+    bool stillEditing() =>
+        mounted &&
+        _editFocus.hasFocus &&
+        _editor.repository == repository &&
+        _editor.selectedId == id &&
+        _text.value == original;
+
+    Uint8List? png;
+    try {
+      png = await const MethodChannel('folio/clipboard')
+          .invokeMethod<Uint8List>('readPng');
+    } on MissingPluginException {
+      // Text paste remains available when the native image channel is absent.
+    } on PlatformException catch (error) {
+      if (mounted) {
+        _editor.reportError(
+          error.message ?? 'No se pudo leer el portapapeles.',
+        );
+      }
+      return;
+    }
+    if (!stillEditing()) return;
+    if (png == null) {
+      if (!_vim.enabled || _vim.insert) {
+        await _editableKey.currentState?.pasteText(
+          SelectionChangedCause.keyboard,
+        );
+      }
+      return;
+    }
+    final reference = await _editor.saveImage(id, png);
+    if (!stillEditing() || reference == null) return;
+    final selection = original.selection;
+    final start = selection.isValid ? selection.start : original.text.length;
+    final end = selection.isValid ? selection.end : start;
+    final image = '![Captura]($reference)';
+    _text.value = TextEditingValue(
+      text: original.text.replaceRange(start, end, image),
+      selection: TextSelection.collapsed(offset: start + image.length),
+    );
+    _revealCursor();
+  }
+
+  void _toggleTask(String id, String source, int offset) {
+    if (_editor.selectedId != id ||
+        _text.text != source ||
+        offset < 0 ||
+        offset >= source.length) {
+      return;
+    }
+    final marker = source[offset];
+    if (marker != ' ' && marker != 'x' && marker != 'X') return;
+    _text.value = _text.value.copyWith(
+      text: source.replaceRange(offset, offset + 1, marker == ' ' ? 'x' : ' '),
+      composing: TextRange.empty,
+    );
   }
 
   void _revealCursor() => WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -179,10 +324,41 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     });
   }
 
-  void _newNote() {
-    _editor.create();
+  Future<void> _newNote({String? folder, NoteTemplate? template}) async {
+    await _editor.create(
+      folder: folder,
+      title: template?.title ?? 'Nueva nota',
+      content: template?.content ?? '',
+    );
+    if (!mounted || _editor.selectedNote == null) return;
     _vim.beginInsert();
     _editFocus.requestFocus();
+  }
+
+  Future<void> _newFromTemplate() async {
+    final template = await showDialog<NoteTemplate>(
+      context: context,
+      animationStyle: EditorMotion.dialog(context),
+      builder: (context) => const TemplatePicker(),
+    );
+    if (mounted && template != null) {
+      await _newNote(folder: _editor.selectedNote?.folder, template: template);
+    }
+  }
+
+  Future<void> _renameFolder(String folder) async {
+    final title = await _prompt(
+      'Renombrar carpeta',
+      initial: _folderTitle(folder),
+      hint: 'Nombre de la carpeta',
+    );
+    if (!mounted || title == null || title.trim().isEmpty) return;
+    await _editor.renameFolder(folder, title.trim());
+    setState(
+      () => _collapsedFolders.removeWhere(
+        (path) => path == folder || path.startsWith('$folder/'),
+      ),
+    );
   }
 
   Future<void> _newFolder({String? parentFolder}) async {
@@ -193,14 +369,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (!mounted || name == null || name.trim().isEmpty) return;
     final segment = name.trim().replaceAll('/', '-');
     final folder = parentFolder == null ? segment : '$parentFolder/$segment';
-    _editor.create(folder: folder);
+    final actualFolder = await _editor.createFolder(folder);
+    if (actualFolder == null || !mounted) return;
     setState(() {
       _collapsedFolders.removeWhere(
-        (path) => folder == path || folder.startsWith('$path/'),
+        (path) => actualFolder == path || actualFolder.startsWith('$path/'),
       );
     });
-    _vim.beginInsert();
-    _editFocus.requestFocus();
+    _notesFocus.requestFocus();
   }
 
   Future<bool> _confirmDestructiveAction({
@@ -233,13 +409,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   Future<void> _deleteNote(MarkdownDocument note) async {
     final confirmed = await _confirmDestructiveAction(
-      title: 'Eliminar nota',
-      message:
-          '¿Quieres eliminar «${note.title}»? Esta acción no se puede deshacer.',
-      action: 'Eliminar',
+      title: 'Mover nota a la papelera',
+      message: 'Puedes restaurar «${note.title}» desde Archivo → Papelera.',
+      action: 'Mover a la papelera',
     );
     if (!mounted || !confirmed) return;
-    _editor.deleteNote(note.id);
+    await _editor.deleteNote(note.id);
     _editFocus.requestFocus();
   }
 
@@ -251,7 +426,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       action: 'Eliminar carpeta',
     );
     if (!mounted || !confirmed) return;
-    _editor.deleteFolder(folder);
+    await _editor.deleteFolder(folder);
     setState(() {
       _collapsedFolders.removeWhere(
         (path) => path == folder || path.startsWith('$folder/'),
@@ -271,9 +446,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   void _moveIntoFolder(SidebarDragData data, String destination) {
     if (data.isFolder) {
-      _editor.moveFolderTo(data.value, destination);
+      unawaited(_editor.moveFolderTo(data.value, destination));
     } else {
-      _editor.moveToFolder(data.value, destination);
+      unawaited(_editor.moveToFolder(data.value, destination));
     }
     _dropFolderTimer?.cancel();
     setState(() {
@@ -307,59 +482,90 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
+  Future<void> _recoverStorageLocation() async {
+    try {
+      final currentPath = NotesStorage.directory?.path ?? '';
+      final path = await FirstRunConfig.chooseNotesDirectory(currentPath);
+      if (!mounted || path == null) return;
+      await _editor.reselectStorageDirectory(
+        Directory(path),
+        beforeSwitch: () => FirstRunConfig.persistNotesDirectory(path),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      _editor.clearError();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo abrir esa ubicación: $error')),
+      );
+    }
+  }
+
   Future<String?> _prompt(
     String title, {
     String initial = '',
     String? hint,
   }) async {
-    final controller = TextEditingController(text: initial);
-    final value = await showCupertinoDialog<String>(
+    final controller = TextEditingController(text: initial)
+      ..selection = TextSelection(baseOffset: 0, extentOffset: initial.length);
+    final route = CupertinoDialogRoute<String>(
       context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: Text(title),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 16),
-          child: CupertinoTextField(
-            autofocus: true,
-            placeholder: hint,
-            controller: controller,
-            onSubmitted: (text) => Navigator.pop(context, text),
+      builder: (context) {
+        final colors = Theme.of(context).colorScheme;
+        return CupertinoAlertDialog(
+          title: Text(title),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 16),
+            child: CupertinoTextField(
+              autofocus: true,
+              placeholder: hint,
+              style: TextStyle(color: colors.onSurface),
+              placeholderStyle: TextStyle(color: colors.onSurfaceVariant),
+              decoration: BoxDecoration(
+                color: colors.surfaceContainerLowest,
+                border: Border.all(color: colors.outline),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              controller: controller,
+              onSubmitted: (text) => Navigator.pop(context, text),
+            ),
           ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Aceptar'),
-          ),
-        ],
-      ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar'),
+            ),
+            CupertinoDialogAction(
+              onPressed: () => Navigator.pop(context, controller.text),
+              child: const Text('Aceptar'),
+            ),
+          ],
+        );
+      },
     );
-    controller.dispose();
-    return value;
+    final result = Navigator.of(context, rootNavigator: true).push(route);
+    unawaited(route.completed.whenComplete(controller.dispose));
+    return result;
   }
 
-  Future<void> _rename() async {
-    final id = _editor.selectedId;
-    final title = await _prompt(
-      'Nombre de la nota',
-      initial: _editor.note.title,
-    );
-    if (!mounted) return;
-    if (title != null && title.trim().isNotEmpty && _editor.selectedId == id) {
-      _editor.update(title: title.trim());
-    }
-    _editFocus.requestFocus();
+  Future<void> _renameNote(MarkdownDocument note) async {
+    final title = await _prompt('Renombrar nota', initial: note.title);
+    final name = title?.trim();
+    if (!mounted || name == null || name.isEmpty || name == note.title) return;
+    await _editor.renameNote(note.id, name);
   }
 
   Future<void> _help() async {
     await showMacosSheet<void>(
       context: context,
       barrierDismissible: true,
-      builder: (_) => const MarkdownHelp(),
+      builder: (_) => MarkdownHelp(
+        onReplayTour: () {
+          Navigator.of(context).pop();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) unawaited(showFirstRunTour(context));
+          });
+        },
+      ),
     );
     if (mounted) _editFocus.requestFocus();
   }
@@ -373,15 +579,28 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   }
 
   Future<void> _quickSearch() async {
-    final hit = await showMacosSheet<QuickSearchHit>(
+    final hit = await showGeneralDialog<QuickSearchHit>(
       context: context,
       barrierDismissible: true,
-      builder: (_) => QuickSearchDialog(notes: _editor.notes),
+      barrierLabel: 'Cerrar búsqueda',
+      barrierColor: Colors.black38,
+      transitionDuration: EditorMotion.duration(context, 150),
+      pageBuilder: (_, _, _) => QuickSearchDialog(notes: _editor.notes),
+      transitionBuilder: (_, animation, _, child) => FadeTransition(
+        opacity: animation.drive(CurveTween(curve: Curves.easeOut)),
+        child: child,
+      ),
     );
     if (!mounted || hit == null) return;
     if (hit.document case final note?) {
       _editor.select(note.id);
+      if (_editor.selectedId != note.id) return;
       _editFocus.requestFocus();
+      final match = QuickSearchHit.findContent(_text.text, hit.contentQuery!);
+      if (match != null) {
+        _text.selection = TextSelection.collapsed(offset: match.start);
+        _revealCursor();
+      }
       return;
     }
     final folder = hit.folderPath;
@@ -496,6 +715,19 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   KeyEventResult _handleGlobalShortcut(KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (_vim.enabled &&
+        HardwareKeyboard.instance.isControlPressed &&
+        !HardwareKeyboard.instance.isMetaPressed &&
+        !HardwareKeyboard.instance.isAltPressed) {
+      if (event.logicalKey == LogicalKeyboardKey.keyH) {
+        _focusNotes();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyL) {
+        _focusPreview();
+        return KeyEventResult.handled;
+      }
+    }
     if (event.logicalKey == LogicalKeyboardKey.f1) {
       _help();
       return KeyEventResult.handled;
@@ -569,12 +801,28 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   Widget _buildTopBar(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final style = FolioStyle.of(context);
+    final toolbarForeground = style.isPop ? style.onAccent : colors.onSurface;
     return Container(
-      height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      height: FolioWindowChrome.isSupported
+          ? FolioWindowChrome.toolbarHeight
+          : style.isRetro
+          ? 46
+          : 58,
+      padding: EdgeInsetsDirectional.only(
+        start: FolioWindowChrome.isSupported
+            ? FolioWindowChrome.trafficLightInset
+            : 10,
+        end: 10,
+      ),
       decoration: BoxDecoration(
-        color: colors.surface,
-        border: Border(bottom: BorderSide(color: colors.outlineVariant)),
+        color: style.isPop ? style.accent : colors.surface,
+        border: Border(
+          bottom: BorderSide(
+            color: style.isGraphic ? style.ink : colors.outlineVariant,
+            width: style.isGraphic ? style.lineWidth : 1,
+          ),
+        ),
       ),
       child: Row(
         children: [
@@ -589,16 +837,32 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     ? CupertinoIcons.sidebar_left
                     : CupertinoIcons.sidebar_right,
                 size: 19,
-                color: colors.onSurfaceVariant,
+                color: toolbarForeground,
               ),
             ),
           ),
+          if (FolioWindowChrome.isSupported || style.isGraphic) ...[
+            const SizedBox(width: 8),
+            Text(
+              style.isRetro ? 'FOLIO' : 'Folio',
+              style: TextStyle(
+                fontFamily: style.isRetro ? 'Menlo' : null,
+                fontSize: FolioWindowChrome.isSupported
+                    ? 13
+                    : style.isRetro
+                    ? 15
+                    : 24,
+                fontWeight: FontWeight.w800,
+                color: toolbarForeground,
+              ),
+            ),
+          ],
           const Spacer(),
           SizedBox(
             width: 92,
             child: FadingLabel(
               _editor.saveStatus,
-              style: TextStyle(fontSize: 11, color: colors.onSurfaceVariant),
+              style: TextStyle(fontSize: 11, color: toolbarForeground),
             ),
           ),
           CupertinoButton(
@@ -617,7 +881,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   Icon(
                     CupertinoIcons.check_mark,
                     size: 13,
-                    color: colors.primary,
+                    color: colors.onSecondaryContainer,
                   ),
                   const SizedBox(width: 5),
                 ],
@@ -625,7 +889,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   'Vim',
                   style: TextStyle(
                     fontSize: 12,
-                    color: _vim.enabled ? colors.primary : colors.onSurface,
+                    color: _vim.enabled
+                        ? colors.onSecondaryContainer
+                        : toolbarForeground,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -647,38 +913,50 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             tooltip: 'Ayuda de Markdown y teclado (F1)',
             onPressed: _help,
           ),
-          _TopBarButton(
-            icon: CupertinoIcons.ellipsis,
-            tooltip: 'Archivo',
-            onPressed: _showFileActions,
+          Builder(
+            builder: (buttonContext) => _TopBarButton(
+              icon: CupertinoIcons.ellipsis,
+              tooltip: 'Archivo',
+              onPressed: () => _showFileActions(buttonContext),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _showFileActions() async {
-    final action = await showCupertinoModalPopup<String>(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: const Text('Archivo'),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(context, 'import'),
-            child: const Text('Importar .md / .txt'),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(context, 'export'),
-            child: const Text('Exportar nota como .md'),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
+  Future<void> _showFileActions(BuildContext buttonContext) async {
+    final action = await showEditorActionMenu<String>(
+      buttonContext,
+      editorMenuAnchor(buttonContext),
+      [
+        editorActionItem(
+          'template',
+          CupertinoIcons.doc_on_doc,
+          'Nueva nota desde plantilla…',
         ),
-      ),
+        editorActionItem(
+          'import',
+          CupertinoIcons.arrow_down_to_line,
+          'Importar .md / .txt',
+        ),
+        editorActionItem(
+          'export',
+          CupertinoIcons.arrow_up_to_line,
+          'Exportar nota como .md',
+        ),
+        editorActionItem(
+          'recovery',
+          CupertinoIcons.clock,
+          'Notas recuperadas (${_editor.recoveredDrafts.length})',
+        ),
+        editorActionItem('trash', CupertinoIcons.trash, 'Papelera'),
+      ],
     );
     if (!mounted) return;
+    if (action == 'template') await _newFromTemplate();
+    if (action == 'trash') await _showTrash();
+    if (action == 'recovery') await _showRecoveredDrafts();
     if (action == 'import') await _editor.importMarkdown();
     if (action == 'export') {
       final saved = await _editor.exportMarkdown();
@@ -699,6 +977,95 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
+  Future<void> _showTrash() async {
+    final List<TrashedNote> notes;
+    try {
+      notes = await _editor.listTrash();
+    } catch (error) {
+      if (mounted) _editor.reportError('No se pudo abrir la papelera: $error');
+      return;
+    }
+    if (!mounted) return;
+    final note = await showCupertinoModalPopup<TrashedNote>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Papelera'),
+        message: Text(
+          notes.isEmpty
+              ? 'La papelera está vacía.'
+              : 'Elige una nota para devolverla a su carpeta.',
+        ),
+        actions: [
+          for (final note in notes)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.pop(context, note),
+              child: Text(
+                'Restaurar ${note.title}${note.folder == null ? '' : ' · ${note.folder}'}',
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cerrar'),
+        ),
+      ),
+    );
+    if (!mounted || note == null) return;
+    await _editor.restoreDeletedNote(note);
+    if (mounted) _editFocus.requestFocus();
+  }
+
+  Future<void> _showRecoveredDrafts() async {
+    await _editor.refreshRecoveredDrafts();
+    if (!mounted) return;
+    if (_editor.recoveredDrafts.isEmpty) {
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('Sin notas recuperadas'),
+          content: const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Si un archivo externo cambia mientras tienes ediciones sin guardar, Folio conservará aquí una copia.',
+            ),
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Listo'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final draft = await showCupertinoModalPopup<RecoveredDraft>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Notas recuperadas'),
+        message: const Text(
+          'Al restaurar una nota, Folio crea una copia Markdown en tu carpeta Folio.',
+        ),
+        actions: [
+          for (final item in _editor.recoveredDrafts)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.pop(context, item),
+              child: Text(
+                'Restaurar: ${item.title} · ${item.recoveredAt.toLocal().toString().substring(0, 16)}',
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cerrar'),
+        ),
+      ),
+    );
+    if (!mounted || draft == null) return;
+    await _editor.restoreRecovered(draft);
+    _editFocus.requestFocus();
+  }
+
   Widget _errorBanner(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Container(
@@ -712,8 +1079,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           CupertinoButton(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             minimumSize: Size.zero,
-            onPressed: _editor.save,
-            child: const Text('Reintentar'),
+            onPressed: _editor.storageUnavailable
+                ? _recoverStorageLocation
+                : _editor.save,
+            child: Text(
+              _editor.storageUnavailable ? 'Elegir carpeta' : 'Reintentar',
+            ),
           ),
           CupertinoButton(
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -764,218 +1135,279 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     onPressed: _editor.load,
                     child: const Text('Reintentar'),
                   ),
+                  const SizedBox(height: 8),
+                  CupertinoButton(
+                    onPressed: _recoverStorageLocation,
+                    child: const Text('Elegir otra carpeta'),
+                  ),
                 ],
               ),
             ),
           ),
         );
       }
-      return CupertinoPageScaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        child: Column(
-          children: [
-            _topBar(context),
-            Expanded(
-              child: Column(
-                children: [
-                  if (_editor.error != null) _errorBanner(context),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        AnimatedNotesPanel(
-                          visible: _sidebar,
-                          child: SizedBox(
-                            width: 250,
-                            child: NotesSidebar(
-                              notes: _editor.notes,
-                              selectedId: _editor.selectedId,
-                              collapsedFolders: _collapsedFolders,
-                              dropFolder: _dropFolder,
-                              focusNode: _notesFocus,
-                              scrollController: _notesScroll,
-                              onKeyEvent: _notesKey,
-                              onNewFolder: _newFolder,
-                              onNewNote: _newNote,
-                              onNewSubfolder: (folder) {
-                                unawaited(_newFolder(parentFolder: folder));
-                              },
-                              onDeleteFolder: (folder) {
-                                unawaited(_deleteFolder(folder));
-                              },
-                              onDeleteNote: (note) {
-                                unawaited(_deleteNote(note));
-                              },
-                              onSelectNote: (note) {
-                                _editor.select(note.id);
-                                _editFocus.requestFocus();
-                              },
-                              onToggleFolder: (folder) => setState(() {
-                                if (!_collapsedFolders.add(folder)) {
-                                  _collapsedFolders.remove(folder);
-                                }
-                              }),
-                              canDropIntoFolder: _canDropIntoFolder,
-                              onDropIntoFolder: _moveIntoFolder,
-                            ),
-                          ),
-                        ),
-                        Expanded(
+      final style = FolioStyle.of(context);
+      final colors = Theme.of(context).colorScheme;
+      final pageContent = Column(
+        children: [
+          if (_editor.error != null) _errorBanner(context),
+          Expanded(
+            child: Row(
+              children: [
+                AnimatedNotesPanel(
+                  visible: _sidebar,
+                  child: SizedBox(
+                    width: 250,
+                    child: NotesSidebar(
+                      notes: _editor.notes,
+                      folderPaths: _editor.folderPaths,
+                      selectedId: _editor.selectedId,
+                      collapsedFolders: _collapsedFolders,
+                      dropFolder: _dropFolder,
+                      focusNode: _notesFocus,
+                      scrollController: _notesScroll,
+                      onKeyEvent: _notesKey,
+                      onNewFolder: _newFolder,
+                      onNewNote: _newNote,
+                      onNewSubfolder: (folder) {
+                        unawaited(_newFolder(parentFolder: folder));
+                      },
+                      onNewNoteInFolder: (folder) {
+                        unawaited(_newNote(folder: folder));
+                      },
+                      onRenameFolder: (folder) {
+                        unawaited(_renameFolder(folder));
+                      },
+                      onRenameNote: (note) {
+                        unawaited(_renameNote(note));
+                      },
+                      onDeleteFolder: (folder) {
+                        unawaited(_deleteFolder(folder));
+                      },
+                      onDeleteNote: (note) {
+                        unawaited(_deleteNote(note));
+                      },
+                      onSelectNote: (note) {
+                        _editor.select(note.id);
+                        _editFocus.requestFocus();
+                      },
+                      onToggleFolder: (folder) => setState(() {
+                        if (!_collapsedFolders.add(folder)) {
+                          _collapsedFolders.remove(folder);
+                        }
+                      }),
+                      canDropIntoFolder: _canDropIntoFolder,
+                      onDropIntoFolder: _moveIntoFolder,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: _editor.selectedNote == null
+                      ? Center(
                           child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Container(
-                                height: 42,
-                                padding: const EdgeInsets.only(
-                                  left: 16,
-                                  right: 8,
+                              Icon(
+                                CupertinoIcons.doc_text,
+                                size: 34,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                              const SizedBox(height: 12),
+                              const Text('Tu espacio está listo'),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Crea una carpeta o una nota para empezar.',
+                                style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
                                 ),
-                                decoration: const BoxDecoration(
-                                  border: Border(
-                                    bottom: BorderSide(
-                                      color: Color(0xffe2e3e6),
-                                    ),
+                              ),
+                              const SizedBox(height: 14),
+                              CupertinoButton.filled(
+                                onPressed: _newNote,
+                                child: const Text('Nueva nota'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Column(
+                          children: [
+                            Container(
+                              height: style.isPop ? 53 : 42,
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              decoration: BoxDecoration(
+                                color: style.isGraphic
+                                    ? colors.surfaceContainer
+                                    : null,
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant,
+                                    width: style.isGraphic
+                                        ? style.lineWidth
+                                        : 1,
                                   ),
                                 ),
-                                child: Row(
+                              ),
+                              child: Text(
+                                _editor.selectedNote?.title ?? 'Sin notas',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: style.isPop ? 19 : 13,
+                                  fontWeight: style.isGraphic
+                                      ? FontWeight.w800
+                                      : FontWeight.w600,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: LayoutBuilder(
+                                builder: (context, constraints) => Row(
                                   children: [
                                     Expanded(
-                                      child: Text(
-                                        _editor.note.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurface,
+                                      child: ListenableBuilder(
+                                        listenable: _vim,
+                                        builder: (context, _) => EditorPane(
+                                          vim: _vim,
+                                          focusNode: _editFocus,
+                                          editableKey: _editableKey,
+                                          previewVisible: _previewVisible,
+                                          onTogglePreview: _togglePreview,
                                         ),
                                       ),
                                     ),
-                                    Tooltip(
-                                      message: 'Renombrar nota',
-                                      child: CupertinoButton(
-                                        padding: const EdgeInsets.all(7),
-                                        minimumSize: Size.zero,
-                                        onPressed: _rename,
-                                        child: Icon(
-                                          CupertinoIcons.pencil,
-                                          size: 15,
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
-                                        ),
+                                    AnimatedContainer(
+                                      duration: EditorMotion.duration(
+                                        context,
+                                        220,
                                       ),
+                                      curve: EditorMotion.curve,
+                                      width: _previewVisible
+                                          ? constraints.maxWidth / 2
+                                          : 0,
+                                      child: _previewVisible
+                                          ? Row(
+                                              children: [
+                                                VerticalDivider(
+                                                  width: style.isGraphic
+                                                      ? style.lineWidth
+                                                      : 1,
+                                                  thickness: style.isGraphic
+                                                      ? style.lineWidth
+                                                      : 1,
+                                                ),
+                                                Expanded(
+                                                  child: Focus(
+                                                    focusNode: _previewFocus,
+                                                    onKeyEvent: _previewKey,
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .stretch,
+                                                      children: [
+                                                        const EditorPanelHeader(
+                                                          title: 'VISTA PREVIA',
+                                                          preview: true,
+                                                        ),
+                                                        Expanded(
+                                                          child: ValueListenableBuilder<String>(
+                                                            valueListenable: _editor
+                                                                .contentListenable,
+                                                            builder:
+                                                                (
+                                                                  context,
+                                                                  content,
+                                                                  _,
+                                                                ) => MarkdownPreview(
+                                                                  noteId: _editor
+                                                                      .selectedId,
+                                                                  onToggleTask:
+                                                                      _toggleTask,
+                                                                  readImage: _editor
+                                                                      .readImage,
+                                                                  controller:
+                                                                      _previewScroll,
+                                                                  content:
+                                                                      content,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            )
+                                          : const SizedBox.shrink(),
                                     ),
                                   ],
                                 ),
                               ),
-                              Expanded(
-                                child: LayoutBuilder(
-                                  builder: (context, constraints) => Row(
-                                    children: [
-                                      Expanded(
-                                        child: ListenableBuilder(
-                                          listenable: _vim,
-                                          builder: (context, _) => EditorPane(
-                                            vim: _vim,
-                                            focusNode: _editFocus,
-                                            editableKey: _editableKey,
-                                            previewVisible: _previewVisible,
-                                            onTogglePreview: _togglePreview,
-                                          ),
-                                        ),
-                                      ),
-                                      AnimatedContainer(
-                                        duration: EditorMotion.duration(
-                                          context,
-                                          220,
-                                        ),
-                                        curve: EditorMotion.curve,
-                                        width: _previewVisible
-                                            ? constraints.maxWidth / 2
-                                            : 0,
-                                        child: _previewVisible
-                                            ? Row(
-                                                children: [
-                                                  const VerticalDivider(
-                                                    width: 1,
-                                                    thickness: 1,
-                                                  ),
-                                                  Expanded(
-                                                    child: Focus(
-                                                      focusNode: _previewFocus,
-                                                      onKeyEvent: _previewKey,
-                                                      child: Column(
-                                                        crossAxisAlignment:
-                                                            CrossAxisAlignment
-                                                                .stretch,
-                                                        children: [
-                                                          SizedBox(
-                                                            height: 42,
-                                                            child: Padding(
-                                                              padding:
-                                                                  const EdgeInsets.symmetric(
-                                                                    horizontal:
-                                                                        20,
-                                                                  ),
-                                                              child: Align(
-                                                                alignment: Alignment
-                                                                    .centerLeft,
-                                                                child: Text(
-                                                                  'VISTA PREVIA',
-                                                                  style: TextStyle(
-                                                                    fontSize:
-                                                                        11,
-                                                                    color: Theme.of(
-                                                                      context,
-                                                                    ).colorScheme.onSurfaceVariant,
-                                                                    letterSpacing:
-                                                                        1,
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                            ),
-                                                          ),
-                                                          Expanded(
-                                                            child: ValueListenableBuilder<String>(
-                                                              valueListenable:
-                                                                  _editor
-                                                                      .contentListenable,
-                                                              builder:
-                                                                  (
-                                                                    context,
-                                                                    content,
-                                                                    _,
-                                                                  ) => MarkdownPreview(
-                                                                    controller:
-                                                                        _previewScroll,
-                                                                    content:
-                                                                        content,
-                                                                  ),
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              )
-                                            : const SizedBox.shrink(),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
+        ],
+      );
+
+      Widget framed(Widget child) => ColoredBox(
+        color: colors.surface,
+        child: Padding(
+          padding: switch (style.kind) {
+            AppStyle.retro => const EdgeInsets.fromLTRB(12, 10, 19, 17),
+            AppStyle.pop => const EdgeInsets.fromLTRB(14, 12, 24, 22),
+            AppStyle.clasico => EdgeInsets.zero,
+          },
+          child: Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: style.isGraphic
+                ? style.panel(colors.surface, lift: style.isRetro ? 6 : 9)
+                : const BoxDecoration(),
+            foregroundDecoration: ShapeDecoration(
+              shape: style.isGraphic
+                  ? style.outline
+                  : const RoundedRectangleBorder(),
+            ),
+            child: child,
+          ),
+        ),
+      );
+
+      if (FolioWindowChrome.isSupported) {
+        return CupertinoPageScaffold(
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          child: Column(
+            children: [
+              _topBar(context),
+              Expanded(child: framed(pageContent)),
+            ],
+          ),
+        );
+      }
+
+      return framed(
+        CupertinoPageScaffold(
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          child: Column(
+            children: [
+              _topBar(context),
+              Expanded(child: pageContent),
+            ],
+          ),
         ),
       );
     },

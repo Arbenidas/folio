@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:macos_ui/macos_ui.dart';
 
+import '../theme.dart';
+
 /// Icon button with consistent contrast for hover, press, and disabled states.
 class AppIconButton extends StatefulWidget {
   const AppIconButton({
@@ -28,9 +30,9 @@ class _AppIconButtonState extends State<AppIconButton> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final style = FolioStyle.of(context);
     final enabled = widget.onPressed != null;
-
-    return MouseRegion(
+    final button = MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: MacosIconButton(
@@ -48,6 +50,17 @@ class _AppIconButtonState extends State<AppIconButton> {
               : colors.onSurface,
         ),
         onPressed: widget.onPressed,
+      ),
+    );
+    if (!style.isGraphic || widget.size < 18) return button;
+    return Padding(
+      padding: const EdgeInsets.only(right: 5, bottom: 3),
+      child: DecoratedBox(
+        decoration: style.panel(
+          _hovered ? style.accent : colors.surfaceContainerLowest,
+          lift: enabled ? (style.isPop ? 3 : 2) : 0,
+        ),
+        child: button,
       ),
     );
   }

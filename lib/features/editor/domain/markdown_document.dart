@@ -1,4 +1,4 @@
-/// Una nota no depende de Flutter, del disco ni de cómo se muestra.
+/// A Markdown note identified by its path relative to the notebook root.
 class MarkdownDocument {
   const MarkdownDocument({
     required this.id,
@@ -10,18 +10,29 @@ class MarkdownDocument {
   final String title;
   final String content;
 
-  /// Ruta de la carpeta; por ejemplo, `Flutter/HTTP` para una subcarpeta.
+  /// Relative folder path; for example, `Flutter/HTTP`.
   final String? folder;
 
   MarkdownDocument copyWith({
+    String? id,
     String? title,
     String? content,
     String? folder,
     bool clearFolder = false,
-  }) => MarkdownDocument(
-    id: id,
-    title: title ?? this.title,
-    content: content ?? this.content,
-    folder: clearFolder ? null : folder ?? this.folder,
-  );
+  }) {
+    final nextTitle = title ?? this.title;
+    final nextFolder = clearFolder ? null : folder ?? this.folder;
+    final locationChanged = title != null || folder != null || clearFolder;
+    final nextId =
+        id ??
+        (locationChanged
+            ? '${nextFolder == null || nextFolder.isEmpty ? '' : '$nextFolder/'}$nextTitle.md'
+            : this.id);
+    return MarkdownDocument(
+      id: nextId,
+      title: nextTitle,
+      content: content ?? this.content,
+      folder: nextFolder,
+    );
+  }
 }
