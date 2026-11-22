@@ -15,10 +15,19 @@ concurrency:
 jobs:
   publish:
     name: Build and publish update
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select latest Xcode 26
+        run: |
+          latest_xcode="$(ls -d /Applications/Xcode_26*.app /Applications/Xcode.app 2>/dev/null | sort -V | tail -n 1)"
+          if [ -n "$latest_xcode" ]; then
+            sudo xcode-select -s "$latest_xcode/Contents/Developer"
+          fi
+          xcodebuild -version
+          swift --version
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
