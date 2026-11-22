@@ -50,6 +50,34 @@ jobs:
             exit 1
           fi
 
+      - name: Configure ad-hoc signing for CI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+
+          pbx = Path("macos/Runner.xcodeproj/project.pbxproj")
+          text = pbx.read_text()
+          text = text.replace('DEVELOPMENT_TEAM = LS5RBP28M2;', 'DEVELOPMENT_TEAM = "";')
+          text = text.replace('CODE_SIGN_IDENTITY = "Apple Development";', 'CODE_SIGN_IDENTITY = "-";')
+          text = text.replace('"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";', '"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";')
+          text = text.replace('CODE_SIGN_STYLE = Automatic;', 'CODE_SIGN_STYLE = Manual;')
+          pbx.write_text(text)
+
+          for ent_path in [
+              Path("macos/Runner/Release.entitlements"),
+              Path("macos/Runner/DebugProfile.entitlements"),
+              Path("macos/FolioTasksWidget/FolioTasksWidget.entitlements"),
+          ]:
+              if ent_path.exists():
+                  with ent_path.open("rb") as f:
+                      data = plistlib.load(f)
+                  data.pop("keychain-access-groups", None)
+                  data.pop("com.apple.security.application-groups", None)
+                  with ent_path.open("wb") as f:
+                      plistlib.dump(data, f)
+          PY
+
       - name: Build macOS app
         run: flutter build macos --release
 
