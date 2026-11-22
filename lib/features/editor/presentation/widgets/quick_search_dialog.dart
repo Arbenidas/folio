@@ -6,6 +6,7 @@ import '../../../../core/widgets/app_icon_button.dart';
 import '../../../../core/theme.dart';
 import '../../domain/markdown_document.dart';
 import 'editor_motion.dart';
+import 'note_inspector_panel.dart';
 
 class QuickSearchHit {
   QuickSearchHit.note(MarkdownDocument note, this.contentQuery)
@@ -36,18 +37,25 @@ class QuickSearchHit {
 }
 
 class QuickSearchDialog extends StatefulWidget {
-  const QuickSearchDialog({super.key, required this.notes});
+  const QuickSearchDialog({
+    super.key,
+    required this.notes,
+    this.initialQuery = '',
+  });
 
   final List<MarkdownDocument> notes;
+  final String initialQuery;
 
   @override
   State<QuickSearchDialog> createState() => _QuickSearchDialogState();
 }
 
 class _QuickSearchDialogState extends State<QuickSearchDialog> {
-  final _controller = TextEditingController();
-  String _query = '';
+  late final _controller = TextEditingController(text: widget.initialQuery);
+  late String _query = widget.initialQuery;
   int _selectedIndex = 0;
+  late final List<String> _allTags =
+      NoteMetadataExtractor.extractAllNotebookTags(widget.notes);
 
   @override
   void initState() {
@@ -247,7 +255,7 @@ class _QuickSearchDialogState extends State<QuickSearchDialog> {
                 CupertinoSearchTextField(
                   controller: _controller,
                   autofocus: true,
-                  placeholder: 'Busca notas, carpetas o contenido…',
+                  placeholder: 'Busca notas, carpetas, contenido o #etiquetas…',
                   style: TextStyle(fontSize: 14, color: colors.onSurface),
                   placeholderStyle: TextStyle(
                     fontSize: 14,
@@ -261,6 +269,61 @@ class _QuickSearchDialogState extends State<QuickSearchDialog> {
                     border: Border.all(color: colors.outline),
                   ),
                 ),
+                if (_allTags.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 26,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _allTags.length.clamp(0, 12),
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
+                      itemBuilder: (context, index) {
+                        final tag = _allTags[index];
+                        final active = _query.trim().toLowerCase() == tag;
+                        return CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          onPressed: () {
+                            final next = active ? '' : tag;
+                            _controller.value = TextEditingValue(
+                              text: next,
+                              selection: TextSelection.collapsed(
+                                offset: next.length,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? colors.tertiaryContainer
+                                  : colors.surfaceContainerLowest,
+                              borderRadius: BorderRadius.circular(13),
+                              border: Border.all(
+                                color: active
+                                    ? colors.tertiary
+                                    : colors.outlineVariant,
+                              ),
+                            ),
+                            child: Text(
+                              tag,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: active
+                                    ? colors.onTertiaryContainer
+                                    : colors.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 Flexible(
                   child: ConstrainedBox(

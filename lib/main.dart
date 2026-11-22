@@ -1,34 +1,71 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:macos_ui/macos_ui.dart';
 
 import 'core/first_run_config.dart';
 import 'core/theme.dart';
+import 'features/blog_publication/data/blog_connection.dart';
+import 'features/cloud_sync/data/folio_cloud_sync_service.dart';
 import 'features/editor/presentation/views/editor_screen.dart';
+import 'features/mobile/folio_cross_platform_app.dart';
 import 'features/onboarding/presentation/views/initial_setup_screen.dart';
 
-void main() => runApp(const ProviderScope(child: MyApp()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await FolioCloudSyncService.instance.ensureInitialized();
+  final isMobileOrWeb =
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+  if (isMobileOrWeb) {
+    runApp(const ProviderScope(child: FolioCrossPlatformApp()));
+    return;
+  }
+  runApp(const ProviderScope(child: MyApp()));
+}
 
-class MyApp extends StatefulWidget {
+class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key, this.home});
 
   final Widget? home;
   @override
-  State<MyApp> createState() => _MyAppState();
+  ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends ConsumerState<MyApp> {
   final appearance = AppAppearance.instance;
+  AppTheme? _cachedThemeKey;
+  AppStyle? _cachedStyleKey;
+  late ThemeData _cachedMaterialTheme;
+  late MacosThemeData _cachedMacosTheme;
+  late CupertinoThemeData _cachedCupertinoTheme;
 
   @override
   void initState() {
     super.initState();
+    _ensureThemeCache();
     appearance.addListener(_changed);
   }
 
+  void _ensureThemeCache() {
+    if (_cachedThemeKey == appearance.selected &&
+        _cachedStyleKey == appearance.style) {
+      return;
+    }
+    _cachedThemeKey = appearance.selected;
+    _cachedStyleKey = appearance.style;
+    _cachedMaterialTheme = buildEditorTheme(
+      appearance.selected,
+      appearance.style,
+    );
+    _cachedMacosTheme = buildEditorMacosTheme(_cachedMaterialTheme);
+    _cachedCupertinoTheme = buildEditorCupertinoTheme(_cachedMaterialTheme);
+  }
+
   void _changed() {
-    if (mounted) setState(() {});
+    if (mounted) setState(_ensureThemeCache);
   }
 
   @override
@@ -39,8 +76,11 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = buildEditorTheme(appearance.selected, appearance.style);
-    final macosTheme = buildEditorMacosTheme(theme);
+    if (blogPublishingConfigured) ref.watch(blogConnectionProvider);
+    _ensureThemeCache();
+    final theme = _cachedMaterialTheme;
+    final macosTheme = _cachedMacosTheme;
+    final cupertinoTheme = _cachedCupertinoTheme;
     return MacosApp(
       title: 'Folio',
       debugShowCheckedModeBanner: false,
@@ -49,10 +89,56 @@ class _MyAppState extends State<MyApp> {
           : ThemeMode.light,
       theme: macosTheme,
       darkTheme: macosTheme,
-      builder: (context, child) => CupertinoTheme(
-        data: buildEditorCupertinoTheme(theme),
-        child: Theme(data: theme, child: child ?? const SizedBox.shrink()),
-      ),
+      builder: (context, child) {
+        final disableAnimations = MediaQuery.disableAnimationsOf(context);
+        final content = CupertinoTheme(
+          data: cupertinoTheme,
+          child: AnimatedTheme(
+            data: theme,
+            duration: disableAnimations
+                ? Duration.zero
+                : const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            child: child ?? const SizedBox.shrink(),
+          ),
+        );
+        final scale = appearance.uiScale;
+        if ((scale - 1.0).abs() < 0.001) return content;
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final mediaSize = MediaQuery.sizeOf(context);
+            final width = constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : mediaSize.width;
+            final height = constraints.hasBoundedHeight
+                ? constraints.maxHeight
+                : mediaSize.height;
+            return SizedBox(
+              width: width,
+              height: height,
+              child: ClipRect(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Transform.scale(
+                    scale: scale,
+                    alignment: Alignment.topLeft,
+                    child: SizedBox(
+                      width: width / scale,
+                      height: height / scale,
+                      child: MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          size: Size(width / scale, height / scale),
+                        ),
+                        child: content,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
       // Keep the Navigator's initial route stable. StartupGate owns loading
       // state and switches to onboarding/editor after the async read completes.
       home: widget.home ?? const _StartupGate(),

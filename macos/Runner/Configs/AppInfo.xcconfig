@@ -8,7 +8,7 @@
 PRODUCT_NAME = Folio
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.folio.app
+PRODUCT_BUNDLE_IDENTIFIER = com.arbenidas.folio
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.

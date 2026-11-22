@@ -2,6 +2,20 @@
 
 Los cambios destacados de cada versión se documentan aquí.
 
+## [0.1.0-alpha.6] - 2026-11-22
+
+- Nuevo ícono minimalista japonés en SVG (*Tsuru* Washi) aplicado en macOS, Web, iOS, Android y dentro de la app.
+- Rediseña Finanzas con paleta sobria de 3 colores (Neutro, Verde y Rojo) en todos los temas: Movimientos en 2 columnas (listado + 3 cards grandes de Entradas, Salidas y Balance), Cuentas con Hero unificado y split editorial, Presupuesto en grid Bento de 3 columnas y nueva gráfica interactiva de área para el Plan de deudas.
+- Elimina el modo Vim y añade navegación natural con teclado entre Sidebar, Editor y Vista previa (`⌃←/→`, `⌥⌘←/→`, `⌃Tab`, `⌘1/2/3/4`) con indicador visual de foco.
+- Mueve el botón de Panel de tareas junto al selector de vistas del editor y corrige el foco y alineación superior al escribir en el editor.
+
+## [0.1.0-alpha.5] - 2026-11-20
+
+- Rediseña el Plan de deudas con sub-pestañas para Adelanto salarial (ritmo editable), Tarjeta de crédito a \$0 y Préstamos con simulador de ahorro en intereses.
+- Renueva Presupuestos (basado en ingreso principal + sugerencia de ahorro) y Movimientos (agrupados por día con resumen dinámico).
+- Mejora el contraste de colores en todos los temas con FinancePalette y actualiza la iconografía.
+- Añade apartado de Notas de parche con comprobación automática de actualizaciones desde GitHub, respaldo automático `.bak` y prepara las versiones Android, iOS y Web.
+
 ## [0.1.0-alpha.4] - 2026-11-08
 
 - Organiza las notas como archivos Markdown y carpetas normales dentro del cuaderno, con sincronización de cambios externos, recuperación de borradores y papelera restaurable.

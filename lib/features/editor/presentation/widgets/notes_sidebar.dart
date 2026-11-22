@@ -1,11 +1,18 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart'
-    show Colors, Material, Scrollbar, ScrollbarTheme, ScrollbarThemeData, Theme;
+    show
+        Colors,
+        Material,
+        Scrollbar,
+        ScrollbarTheme,
+        ScrollbarThemeData,
+        Theme;
 import 'package:macos_ui/macos_ui.dart';
 
-import '../../../../core/widgets/app_icon_button.dart';
 import '../../../../core/theme.dart';
+import '../../../../core/widgets/app_icon_button.dart';
+import '../../../tasks/domain/managed_task.dart';
 import '../../domain/markdown_document.dart';
 import 'editor_action_menu.dart';
 import 'editor_motion.dart';
@@ -18,7 +25,7 @@ class SidebarDragData {
   final bool isFolder;
 }
 
-enum _NoteAction { rename, delete }
+enum _NoteAction { rename, publish, delete }
 
 enum _FolderAction { newNote, newSubfolder, rename, delete }
 
@@ -39,12 +46,19 @@ class NotesSidebar extends StatelessWidget {
     required this.onNewNoteInFolder,
     required this.onRenameFolder,
     required this.onRenameNote,
+    required this.onPublishNote,
     required this.onDeleteFolder,
     required this.onDeleteNote,
     required this.onSelectNote,
     required this.onToggleFolder,
     required this.canDropIntoFolder,
     required this.onDropIntoFolder,
+    this.inProgressTasks = const [],
+    this.taskCount = 0,
+    this.onOpenTasks,
+    this.onOpenTaskNote,
+    this.onOpenDailyNote,
+    this.onQuickSearch,
   });
 
   final List<MarkdownDocument> notes;
@@ -61,12 +75,19 @@ class NotesSidebar extends StatelessWidget {
   final ValueChanged<String> onNewNoteInFolder;
   final ValueChanged<String> onRenameFolder;
   final ValueChanged<MarkdownDocument> onRenameNote;
+  final ValueChanged<MarkdownDocument> onPublishNote;
   final ValueChanged<String> onDeleteFolder;
   final ValueChanged<MarkdownDocument> onDeleteNote;
   final ValueChanged<MarkdownDocument> onSelectNote;
   final ValueChanged<String> onToggleFolder;
   final bool Function(SidebarDragData, String) canDropIntoFolder;
   final void Function(SidebarDragData, String) onDropIntoFolder;
+  final List<ManagedTask> inProgressTasks;
+  final int taskCount;
+  final VoidCallback? onOpenTasks;
+  final ValueChanged<ManagedTask>? onOpenTaskNote;
+  final VoidCallback? onOpenDailyNote;
+  final VoidCallback? onQuickSearch;
 
   String? _parentOf(String path) {
     final slash = path.lastIndexOf('/');
@@ -75,6 +96,16 @@ class NotesSidebar extends StatelessWidget {
 
   String _nameOf(String path) => path.substring(path.lastIndexOf('/') + 1);
 
+  int _noteCountInFolder(String path) {
+    final prefix = '$path/';
+    return notes
+        .where(
+          (note) =>
+              note.folder == path || (note.folder?.startsWith(prefix) ?? false),
+        )
+        .length;
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -82,28 +113,24 @@ class NotesSidebar extends StatelessWidget {
     final tree = ListView(
       controller: scrollController,
       padding: switch (style.kind) {
-        AppStyle.retro => const EdgeInsets.fromLTRB(9, 8, 14, 16),
-        AppStyle.pop => const EdgeInsets.fromLTRB(10, 12, 14, 16),
-        AppStyle.clasico => const EdgeInsets.fromLTRB(6, 4, 6, 16),
+        AppStyle.retro => const EdgeInsets.fromLTRB(10, 8, 12, 14),
+        AppStyle.pop => const EdgeInsets.fromLTRB(10, 10, 12, 14),
+        AppStyle.clasico => const EdgeInsets.fromLTRB(10, 6, 10, 14),
       },
       children: _childrenOf(context, null, 0),
     );
     return Container(
-      decoration: BoxDecoration(
-        color: colors.surfaceContainerLow,
-        border: style.isGraphic
-            ? Border(
-                right: BorderSide(color: style.ink, width: style.lineWidth),
-              )
-            : null,
-      ),
+      color: colors.surfaceContainerLow,
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.fromLTRB(18, 5, 10, 5),
+            height: 48,
+            padding: const EdgeInsets.fromLTRB(14, 6, 10, 6),
             decoration: style.isGraphic
                 ? BoxDecoration(
-                    color: style.isPop ? style.folderAccent(3) : colors.surface,
+                    color: style.isPop
+                        ? style.folderAccent(3)
+                        : colors.surface,
                     border: Border(
                       bottom: BorderSide(
                         color: style.ink,
@@ -111,29 +138,80 @@ class NotesSidebar extends StatelessWidget {
                       ),
                     ),
                   )
-                : null,
+                : BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: colors.outlineVariant.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ),
             child: Row(
               children: [
-                Expanded(
+                AnimatedContainer(
+                  duration: EditorMotion.duration(context, 140),
+                  width: focusNode.hasFocus ? 6 : 0,
+                  height: 6,
+                  margin: EdgeInsets.only(right: focusNode.hasFocus ? 6 : 0),
+                  decoration: BoxDecoration(
+                    color: focusNode.hasFocus
+                        ? colors.primary
+                        : Colors.transparent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Text(
+                  'NOTAS',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFamily: style.isRetro ? 'Menlo' : null,
+                    color: style.isPop
+                        ? style.folderForeground(3)
+                        : focusNode.hasFocus
+                        ? colors.onSurface
+                        : colors.onSurfaceVariant,
+                    letterSpacing: 1.15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6.5,
+                    vertical: 1.5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: style.isPop
+                        ? colors.surface.withValues(alpha: 0.72)
+                        : colors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                   child: Text(
-                    'NOTAS',
+                    '${notes.length}',
                     style: TextStyle(
                       fontSize: 11,
-                      fontFamily: style.isRetro ? 'Menlo' : null,
+                      fontWeight: FontWeight.w700,
                       color: style.isPop
                           ? style.folderForeground(3)
                           : colors.onSurfaceVariant,
-                      letterSpacing: 1.1,
-                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ),
+                const Spacer(),
+                if (onOpenDailyNote != null) ...[
+                  _SidebarAction(
+                    icon: CupertinoIcons.calendar_today,
+                    tooltip: 'Nota de hoy (⌘D)',
+                    onPressed: onOpenDailyNote!,
+                  ),
+                  const SizedBox(width: 2),
+                ],
                 _SidebarAction(
                   icon: CupertinoIcons.folder_badge_plus,
                   tooltip: 'Nueva carpeta',
                   onPressed: onNewFolder,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 2),
                 _SidebarAction(
                   icon: CupertinoIcons.add,
                   tooltip: 'Nueva nota (⌘N)',
@@ -142,6 +220,11 @@ class NotesSidebar extends StatelessWidget {
               ],
             ),
           ),
+          if (onQuickSearch != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 4),
+              child: _SidebarSearchTrigger(onPressed: onQuickSearch!),
+            ),
           Expanded(
             child: Focus(
               focusNode: focusNode,
@@ -149,18 +232,19 @@ class NotesSidebar extends StatelessWidget {
               child: style.isRetro
                   ? ScrollbarTheme(
                       data: ScrollbarThemeData(
-                        thumbColor: WidgetStatePropertyAll(style.ink),
-                        trackColor: WidgetStatePropertyAll(
-                          colors.surfaceContainerHighest,
+                        thumbColor: WidgetStatePropertyAll(
+                          style.ink.withValues(alpha: 0.55),
                         ),
-                        trackBorderColor: WidgetStatePropertyAll(style.ink),
+                        trackColor: WidgetStatePropertyAll(
+                          colors.surfaceContainerHighest.withValues(
+                            alpha: 0.35,
+                          ),
+                        ),
                       ),
                       child: Scrollbar(
                         controller: scrollController,
-                        thumbVisibility: true,
-                        trackVisibility: true,
-                        thickness: 8,
-                        radius: Radius.zero,
+                        thickness: 6,
+                        radius: const Radius.circular(3),
                         child: ScrollConfiguration(
                           behavior: ScrollConfiguration.of(context)
                               .copyWith(scrollbars: false),
@@ -170,6 +254,12 @@ class NotesSidebar extends StatelessWidget {
                     )
                   : tree,
             ),
+          ),
+          _InProgressTasks(
+            tasks: inProgressTasks,
+            taskCount: taskCount,
+            onOpenTasks: onOpenTasks,
+            onOpenTaskNote: onOpenTaskNote,
           ),
         ],
       ),
@@ -195,11 +285,11 @@ class NotesSidebar extends StatelessWidget {
         CustomPaint(
           key: row.key,
           painter: _TreeBranch(
-            ink: style.ink,
+            ink: style.ink.withValues(alpha: 0.42),
             isLast: index == rows.length - 1,
             isFolder: index < folders.length,
           ),
-          child: Padding(padding: const EdgeInsets.only(left: 19), child: row),
+          child: Padding(padding: const EdgeInsets.only(left: 16), child: row),
         ),
     ];
   }
@@ -220,11 +310,11 @@ class NotesSidebar extends StatelessWidget {
         child: CupertinoPopupSurface(
           isSurfacePainted: true,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(CupertinoIcons.folder, size: 17),
+                const Icon(CupertinoIcons.folder, size: 16),
                 const SizedBox(width: 8),
                 Text(_nameOf(path)),
               ],
@@ -248,108 +338,150 @@ class NotesSidebar extends StatelessWidget {
             padding: EdgeInsets.only(left: style.isRetro ? 0 : depth * 14),
             child: Column(
               children: [
-                AnimatedContainer(
-                  duration: EditorMotion.duration(context, 170),
-                  curve: Curves.easeOutCubic,
-                  margin: EdgeInsets.symmetric(vertical: style.isPop ? 5 : 2),
-                  decoration: style.isPop
-                      ? style.panel(
-                          hovering ? colors.tertiaryContainer : colors.surface,
-                          lift: 3,
-                        )
-                      : BoxDecoration(
-                          color: hovering
-                              ? colors.tertiaryContainer
-                              : justDropped
-                              ? colors.secondaryContainer
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                  child: CupertinoButton(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 7,
-                    ),
-                    minimumSize: Size.zero,
-                    alignment: Alignment.centerLeft,
-                    borderRadius: BorderRadius.circular(10),
-                    pressedOpacity: 0.72,
-                    onPressed: () => onToggleFolder(path),
-                    child: Row(
-                      children: [
-                        if (style.isRetro)
-                          Icon(
-                            expanded
-                                ? CupertinoIcons.minus_square_fill
-                                : CupertinoIcons.plus_square_fill,
-                            size: 13,
-                            color: foreground,
-                          )
-                        else
-                          AnimatedRotation(
-                            turns: expanded ? 0 : -0.25,
-                            duration: EditorMotion.duration(context, 190),
-                            curve: Curves.easeOutCubic,
-                            child: Icon(
-                              CupertinoIcons.chevron_down,
-                              size: 12,
-                              color: foreground,
+                _HoverableRow(
+                  builder: (context, rowHovered) {
+                    final count = _noteCountInFolder(path);
+                    return AnimatedContainer(
+                      duration: EditorMotion.duration(context, 150),
+                      curve: Curves.easeOutCubic,
+                      margin: EdgeInsets.symmetric(
+                        vertical: style.isPop ? 4 : 2,
+                      ),
+                      decoration: style.isPop
+                          ? style.panel(
+                              hovering
+                                  ? colors.tertiaryContainer
+                                  : colors.surface,
+                              lift: 2.5,
+                            )
+                          : BoxDecoration(
+                              color: hovering
+                                  ? colors.tertiaryContainer
+                                  : justDropped
+                                  ? colors.secondaryContainer
+                                  : rowHovered
+                                  ? colors.surfaceContainerHigh.withValues(
+                                      alpha: 0.72,
+                                    )
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(9),
                             ),
-                          ),
-                        const SizedBox(width: 7),
-                        Container(
-                          padding: style.isPop ? const EdgeInsets.all(4) : null,
-                          decoration: style.isPop ? style.panel(tab) : null,
-                          child: AnimatedSwitcher(
-                            duration: EditorMotion.duration(context, 150),
-                            child: Icon(
-                              hovering || justDropped
-                                  ? CupertinoIcons.folder_badge_plus
-                                  : expanded
-                                  ? CupertinoIcons.folder_open
-                                  : CupertinoIcons.folder,
-                              key: ValueKey((hovering, expanded)),
-                              size: 17,
-                              color: style.isPop
-                                  ? style.folderForeground(tabIndex)
-                                  : foreground,
-                            ),
+                      child: GestureDetector(
+                        onSecondaryTapUp: (details) => _showFolderActions(
+                          context,
+                          path,
+                          details.globalPosition,
+                        ),
+                        child: CupertinoButton(
+                          padding: const EdgeInsets.fromLTRB(9, 8.5, 5, 8.5),
+                          minimumSize: Size.zero,
+                          alignment: Alignment.centerLeft,
+                          borderRadius: BorderRadius.circular(9),
+                          pressedOpacity: 0.72,
+                          onPressed: () => onToggleFolder(path),
+                          child: Row(
+                            children: [
+                              if (style.isRetro)
+                                Icon(
+                                  expanded
+                                      ? CupertinoIcons.minus_square
+                                      : CupertinoIcons.plus_square,
+                                  size: 14,
+                                  color: foreground.withValues(alpha: 0.78),
+                                )
+                              else
+                                AnimatedRotation(
+                                  turns: expanded ? 0 : -0.25,
+                                  duration: EditorMotion.duration(context, 180),
+                                  curve: Curves.easeOutCubic,
+                                  child: Icon(
+                                    CupertinoIcons.chevron_down,
+                                    size: 13,
+                                    color: colors.onSurfaceVariant,
+                                  ),
+                                ),
+                              const SizedBox(width: 7),
+                              Container(
+                                padding: style.isPop
+                                    ? const EdgeInsets.all(4)
+                                    : null,
+                                decoration: style.isPop
+                                    ? style.panel(tab)
+                                    : null,
+                                child: Icon(
+                                  hovering || justDropped
+                                      ? CupertinoIcons.folder_badge_plus
+                                      : expanded
+                                      ? CupertinoIcons.folder_open
+                                      : CupertinoIcons.folder,
+                                  size: 19,
+                                  color: style.isPop
+                                      ? style.folderForeground(tabIndex)
+                                      : hovering || justDropped
+                                      ? foreground
+                                      : colors.primary.withValues(alpha: 0.9),
+                                ),
+                              ),
+                              const SizedBox(width: 9),
+                              Expanded(
+                                child: Text(
+                                  _nameOf(path),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: foreground,
+                                  ),
+                                ),
+                              ),
+                              if (!rowHovered && !hovering && count > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 4),
+                                  child: Text(
+                                    '$count',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: colors.onSurfaceVariant.withValues(
+                                        alpha: 0.65,
+                                      ),
+                                      fontFeatures: const [
+                                        FontFeature.tabularFigures(),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              AnimatedOpacity(
+                                opacity: rowHovered || hovering ? 1 : 0,
+                                alwaysIncludeSemantics: true,
+                                duration: EditorMotion.duration(context, 120),
+                                child: Builder(
+                                  builder: (buttonContext) => AppIconButton(
+                                    padding: const EdgeInsets.all(4),
+                                    semanticLabel:
+                                        'Acciones de ${_nameOf(path)}',
+                                    icon: CupertinoIcons.ellipsis,
+                                    size: 16,
+                                    onPressed: () => _showFolderActions(
+                                      context,
+                                      path,
+                                      editorMenuAnchor(buttonContext),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _nameOf(path),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: foreground,
-                            ),
-                          ),
-                        ),
-                        Builder(
-                          builder: (buttonContext) => AppIconButton(
-                            padding: const EdgeInsets.all(4),
-                            semanticLabel: 'Acciones de ${_nameOf(path)}',
-                            icon: CupertinoIcons.ellipsis,
-                            size: 16,
-                            onPressed: () => _showFolderActions(
-                              context,
-                              path,
-                              editorMenuAnchor(buttonContext),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+                    );
+                  },
                 ),
                 ClipRect(
                   child: AnimatedSize(
-                    duration: EditorMotion.duration(context, 230),
-                    curve: Curves.easeInOutCubic,
+                    duration: EditorMotion.duration(context, 210),
+                    curve: EditorMotion.emphasizedCurve,
                     alignment: Alignment.topCenter,
                     child: expanded
                         ? Column(
@@ -428,7 +560,7 @@ class NotesSidebar extends StatelessWidget {
     return Padding(
       key: ValueKey(note.id),
       padding: EdgeInsets.only(
-        left: style.isRetro || note.folder == null ? 0 : 20 + depth * 14,
+        left: style.isRetro || note.folder == null ? 0 : 18 + depth * 14,
       ),
       child: Draggable<SidebarDragData>(
         data: SidebarDragData.note(note.id),
@@ -440,21 +572,22 @@ class NotesSidebar extends StatelessWidget {
           child: CupertinoPopupSurface(
             isSurfacePainted: true,
             child: SizedBox(
-              width: 230,
+              width: 240,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 9,
+                  horizontal: 14,
+                  vertical: 10,
                 ),
                 child: Row(
                   children: [
-                    const Icon(CupertinoIcons.doc_text, size: 16),
+                    const Icon(CupertinoIcons.doc_text, size: 17),
                     const SizedBox(width: 9),
                     Expanded(
                       child: Text(
                         note.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13.5),
                       ),
                     ),
                   ],
@@ -463,107 +596,136 @@ class NotesSidebar extends StatelessWidget {
             ),
           ),
         ),
-        childWhenDragging: const SizedBox(height: 42),
+        childWhenDragging: const SizedBox(height: 40),
         child: GestureDetector(
           onSecondaryTapUp: (details) =>
               _showNoteActions(context, note, details.globalPosition),
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 2),
-            decoration: style.isGraphic && selected
-                ? style.panel(
-                    style.isRetro ? colors.surface : colors.secondaryContainer,
-                    lift: style.isPop ? 2 : 0,
-                  )
-                : BoxDecoration(
-                    color: selected
-                        ? colors.secondaryContainer
-                        : Colors.transparent,
-                    border: style.isGraphic
-                        ? Border.all(
-                            color: Colors.transparent,
-                            width: style.lineWidth,
-                          )
-                        : null,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: RawGestureDetector(
-                    // Each click resolves on release, including the first of a pair.
-                    gestures: {
-                      SerialTapGestureRecognizer:
-                          GestureRecognizerFactoryWithHandlers<
-                            SerialTapGestureRecognizer
-                          >(
-                            () => SerialTapGestureRecognizer(
-                              allowedButtonsFilter: (buttons) =>
-                                  buttons == kPrimaryButton,
+          child: _HoverableRow(
+            builder: (context, hovered) => AnimatedContainer(
+              duration: EditorMotion.duration(context, 140),
+              curve: EditorMotion.curve,
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              decoration: style.isGraphic && selected
+                  ? BoxDecoration(
+                      color: style.isRetro
+                          ? colors.surfaceContainerHighest.withValues(
+                              alpha: 0.72,
+                            )
+                          : colors.secondaryContainer,
+                      borderRadius: BorderRadius.circular(
+                        style.isRetro ? 8 : 10,
+                      ),
+                      border: Border.all(
+                        color: style.ink.withValues(
+                          alpha: style.isRetro ? 0.75 : 1,
+                        ),
+                        width: style.isRetro ? 1.4 : style.lineWidth,
+                      ),
+                      boxShadow: style.isPop
+                          ? [
+                              BoxShadow(
+                                color: style.shadow,
+                                offset: const Offset(2, 2),
+                              ),
+                            ]
+                          : null,
+                    )
+                  : BoxDecoration(
+                      color: selected
+                          ? colors.secondaryContainer
+                          : hovered
+                          ? colors.surfaceContainerHigh.withValues(alpha: 0.7)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: RawGestureDetector(
+                      // Each click resolves on release, including the first of a pair.
+                      gestures: {
+                        SerialTapGestureRecognizer:
+                            GestureRecognizerFactoryWithHandlers<
+                              SerialTapGestureRecognizer
+                            >(
+                              () => SerialTapGestureRecognizer(
+                                allowedButtonsFilter: (buttons) =>
+                                    buttons == kPrimaryButton,
+                              ),
+                              (recognizer) =>
+                                  recognizer.onSerialTapUp = (details) {
+                                    if (details.count > 1 && selected) {
+                                      onRenameNote(note);
+                                    } else {
+                                      onSelectNote(note);
+                                    }
+                                  },
                             ),
-                            (recognizer) =>
-                                recognizer.onSerialTapUp = (details) {
-                                  if (details.count > 1 && selected) {
-                                    onRenameNote(note);
-                                  } else {
-                                    onSelectNote(note);
-                                  }
-                                },
-                          ),
-                    },
-                    child: CupertinoButton(
-                      padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
-                      minimumSize: Size.zero,
-                      borderRadius: BorderRadius.circular(10),
-                      onPressed: () => onSelectNote(note),
-                      child: Row(
-                        children: [
-                          Icon(
-                            selected
-                                ? CupertinoIcons.doc_text_fill
-                                : CupertinoIcons.doc_text,
-                            size: 16,
-                            color: selected
-                                ? foreground
-                                : colors.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              note.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13,
-                                height: 1.35,
-                                fontWeight: selected
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                                color: foreground,
+                      },
+                      child: CupertinoButton(
+                        padding: const EdgeInsets.fromLTRB(10, 8.5, 4, 8.5),
+                        minimumSize: Size.zero,
+                        borderRadius: BorderRadius.circular(9),
+                        onPressed: () => onSelectNote(note),
+                        child: Row(
+                          children: [
+                            Icon(
+                              selected
+                                  ? CupertinoIcons.doc_text_fill
+                                  : CupertinoIcons.doc_text,
+                              size: 17.5,
+                              color: selected
+                                  ? (style.isRetro
+                                        ? colors.primary
+                                        : foreground)
+                                  : colors.onSurfaceVariant.withValues(
+                                      alpha: 0.82,
+                                    ),
+                            ),
+                            const SizedBox(width: 9),
+                            Expanded(
+                              child: Text(
+                                note.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 13.5,
+                                  height: 1.34,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                  color: foreground,
+                                ),
                               ),
                             ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  AnimatedOpacity(
+                    opacity: hovered || selected ? 1 : 0,
+                    alwaysIncludeSemantics: true,
+                    duration: EditorMotion.duration(context, 120),
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 5),
+                      child: Builder(
+                        builder: (buttonContext) => AppIconButton(
+                          padding: const EdgeInsets.all(4),
+                          semanticLabel: 'Acciones de ${note.title}',
+                          icon: CupertinoIcons.ellipsis,
+                          size: 16,
+                          onPressed: () => _showNoteActions(
+                            context,
+                            note,
+                            editorMenuAnchor(buttonContext),
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: Builder(
-                    builder: (buttonContext) => AppIconButton(
-                      padding: const EdgeInsets.all(4),
-                      semanticLabel: 'Acciones de ${note.title}',
-                      icon: CupertinoIcons.ellipsis,
-                      size: 15,
-                      onPressed: () => _showNoteActions(
-                        context,
-                        note,
-                        editorMenuAnchor(buttonContext),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -586,6 +748,11 @@ class NotesSidebar extends StatelessWidget {
           'Renombrar nota',
         ),
         editorActionItem(
+          _NoteAction.publish,
+          CupertinoIcons.globe,
+          'Publicar en arbe.blog…',
+        ),
+        editorActionItem(
           _NoteAction.delete,
           CupertinoIcons.trash,
           'Mover a la papelera',
@@ -597,11 +764,238 @@ class NotesSidebar extends StatelessWidget {
     switch (action) {
       case _NoteAction.rename:
         onRenameNote(note);
+      case _NoteAction.publish:
+        onPublishNote(note);
       case _NoteAction.delete:
         onDeleteNote(note);
       case null:
         break;
     }
+  }
+}
+
+class _InProgressTasks extends StatefulWidget {
+  const _InProgressTasks({
+    required this.tasks,
+    required this.taskCount,
+    required this.onOpenTasks,
+    required this.onOpenTaskNote,
+  });
+
+  final List<ManagedTask> tasks;
+  final int taskCount;
+  final VoidCallback? onOpenTasks;
+  final ValueChanged<ManagedTask>? onOpenTaskNote;
+
+  @override
+  State<_InProgressTasks> createState() => _InProgressTasksState();
+}
+
+class _InProgressTasksState extends State<_InProgressTasks> {
+  bool _expanded = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final style = FolioStyle.of(context);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 6, 10, 10),
+      decoration: BoxDecoration(
+        color: colors.surface.withValues(alpha: 0.84),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(
+          color: style.isGraphic
+              ? style.ink.withValues(alpha: 0.35)
+              : colors.outlineVariant.withValues(alpha: 0.8),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CupertinoButton(
+            padding: const EdgeInsetsDirectional.fromSTEB(12, 10, 12, 10),
+            minimumSize: Size.zero,
+            alignment: AlignmentDirectional.centerStart,
+            onPressed: () => setState(() => _expanded = !_expanded),
+            child: Row(
+              children: [
+                AnimatedRotation(
+                  turns: _expanded ? 0 : -0.25,
+                  duration: EditorMotion.duration(context, 160),
+                  curve: EditorMotion.curve,
+                  child: Icon(
+                    CupertinoIcons.chevron_down,
+                    size: 13,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    'EN CURSO',
+                    style: TextStyle(
+                      fontFamily: style.isRetro ? 'Menlo' : null,
+                      fontSize: 11.5,
+                      letterSpacing: 1.05,
+                      fontWeight: FontWeight.w700,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7.5,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: widget.taskCount > 0
+                        ? colors.primaryContainer.withValues(alpha: 0.85)
+                        : colors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${widget.taskCount}',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: widget.taskCount > 0
+                          ? colors.onPrimaryContainer
+                          : colors.onSurfaceVariant,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ClipRect(
+            child: AnimatedSize(
+              duration: EditorMotion.duration(context, 180),
+              curve: EditorMotion.emphasizedCurve,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 11),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (widget.tasks.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Text(
+                                'Sin tareas en curso',
+                                style: TextStyle(
+                                  color: colors.onSurfaceVariant.withValues(
+                                    alpha: 0.78,
+                                  ),
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            )
+                          else ...[
+                            for (final task in widget.tasks.take(3))
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 5),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 7,
+                                      height: 7,
+                                      decoration: BoxDecoration(
+                                        color: colors.primary,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: CupertinoButton(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 3.5,
+                                        ),
+                                        minimumSize: Size.zero,
+                                        alignment:
+                                            AlignmentDirectional.centerStart,
+                                        onPressed: widget.onOpenTasks,
+                                        child: Text(
+                                          task.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: colors.onSurface,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    if (task.noteId != null)
+                                      CupertinoButton(
+                                        padding: const EdgeInsets.all(4),
+                                        minimumSize: Size.zero,
+                                        onPressed: () =>
+                                            widget.onOpenTaskNote?.call(task),
+                                        child: Icon(
+                                          CupertinoIcons.arrow_up_right_square,
+                                          size: 15,
+                                          color: colors.onSurfaceVariant,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            const SizedBox(height: 5),
+                          ],
+                          _HoverableRow(
+                            builder: (context, hovered) => CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size.zero,
+                              onPressed: widget.onOpenTasks,
+                              child: AnimatedContainer(
+                                duration: EditorMotion.duration(context, 140),
+                                height: 34,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: hovered
+                                      ? colors.primaryContainer
+                                      : colors.primaryContainer.withValues(
+                                          alpha: 0.6,
+                                        ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'Ver tareas',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: colors.onPrimaryContainer,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Icon(
+                                      CupertinoIcons.arrow_right,
+                                      size: 14,
+                                      color: colors.onPrimaryContainer,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity, height: 0),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -620,15 +1014,15 @@ class _TreeBranch extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final pen = Paint()
       ..color = ink
-      ..strokeWidth = 1.5
+      ..strokeWidth = 1.25
       ..strokeCap = StrokeCap.round;
-    final join = isFolder && size.height > 40 ? 20.0 : size.height / 2;
+    final join = isFolder && size.height > 36 ? 16.0 : size.height / 2;
     canvas.drawLine(
-      Offset(14, 0),
-      Offset(14, isLast ? join : size.height),
+      const Offset(9, 0),
+      Offset(9, isLast ? join : size.height),
       pen,
     );
-    canvas.drawLine(Offset(14, join), Offset(22, join), pen);
+    canvas.drawLine(Offset(9, join), Offset(16, join), pen);
   }
 
   @override
@@ -636,6 +1030,101 @@ class _TreeBranch extends CustomPainter {
       ink != oldDelegate.ink ||
       isLast != oldDelegate.isLast ||
       isFolder != oldDelegate.isFolder;
+}
+
+class _HoverableRow extends StatefulWidget {
+  const _HoverableRow({required this.builder});
+
+  final Widget Function(BuildContext context, bool hovered) builder;
+
+  @override
+  State<_HoverableRow> createState() => _HoverableRowState();
+}
+
+class _HoverableRowState extends State<_HoverableRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    onEnter: (_) => setState(() => _hovered = true),
+    onExit: (_) => setState(() => _hovered = false),
+    child: widget.builder(context, _hovered),
+  );
+}
+
+class _SidebarSearchTrigger extends StatelessWidget {
+  const _SidebarSearchTrigger({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final style = FolioStyle.of(context);
+    return _HoverableRow(
+      builder: (context, hovered) => CupertinoButton(
+        padding: EdgeInsets.zero,
+        minimumSize: Size.zero,
+        onPressed: onPressed,
+        child: AnimatedContainer(
+          duration: EditorMotion.duration(context, 140),
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: hovered
+                ? colors.surfaceContainerHigh
+                : colors.surface.withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: style.isGraphic
+                  ? style.ink.withValues(alpha: 0.4)
+                  : colors.outlineVariant.withValues(alpha: 0.78),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                CupertinoIcons.search,
+                size: 15,
+                color: colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Buscar notas…',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: colors.onSurfaceVariant.withValues(alpha: 0.82),
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5.5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: colors.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(
+                    color: colors.outlineVariant.withValues(alpha: 0.6),
+                  ),
+                ),
+                child: Text(
+                  '⌘K',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SidebarAction extends StatelessWidget {
@@ -655,6 +1144,8 @@ class _SidebarAction extends StatelessWidget {
     child: AppIconButton(
       semanticLabel: tooltip,
       icon: icon,
+      size: 17.5,
+      padding: const EdgeInsets.all(6),
       onPressed: onPressed,
     ),
   );

@@ -1,0 +1,64 @@
+[
+  {
+    "version": "0.1.0-alpha.6",
+    "build": 6,
+    "date": "2026-11-22",
+    "tag": "Diseño + Navegación",
+    "title": "Nuevo ícono SVG, rediseño moderno de Finanzas y navegación natural con teclado",
+    "highlights": [
+      "Nuevo ícono minimalista japonés en SVG (Tsuru Washi) aplicado en macOS, Web, iOS y Android.",
+      "Paleta limpia de 3 colores (Neutro, Verde y Rojo) en todas las vistas y gráficas de Finanzas.",
+      "Movimientos en 2 columnas (listado a la izquierda y 3 cards grandes de Entradas, Salidas y Balance a la derecha), Cuentas con Hero unificado, Presupuesto en grid Bento de 3 columnas y nueva gráfica interactiva de área en Plan de deudas.",
+      "Navegación natural solo con teclado entre Sidebar, Editor y Vista previa (⌃←/→, ⌥⌘←/→, ⌃Tab, ⌘1/2/3/4) y botón de Panel de tareas junto al selector de vistas."
+    ],
+    "fixes": [
+      "Eliminado el modo Vim para una escritura directa sin interrupciones.",
+      "Corregido el foco al hacer clic en el editor y la alineación superior en el modo Solo editor."
+    ]
+  },
+  {
+    "version": "0.1.0-alpha.5",
+    "build": 5,
+    "date": "2026-11-20",
+    "tag": "Finanzas + Móvil + Web",
+    "title": "Plan de deudas renovado, Préstamos, Notas de parche y soporte Móvil/Web",
+    "highlights": [
+      "Nuevo Plan de deudas minimalista con sub-pestañas para Adelanto salarial (ritmo editable), Tarjeta de crédito a $0 y Préstamos con simulador de ahorro en intereses.",
+      "Nuevo apartado Presupuestos basado en tu ingreso principal con deducciones automáticas y sugerencia de ahorro.",
+      "Nuevo apartado Movimientos con resumen dinámico y tarjetas agrupadas por día.",
+      "Soporte multiplataforma preparado para Android, iOS y Web, con navegación móvil responsiva y respaldo automático .bak.",
+      "Apartado integrado de Notas de parche y comprobador de actualizaciones conectadas directamente a GitHub."
+    ],
+    "fixes": [
+      "Mejorado el contraste de colores en todos los temas oscuros y claros mediante FinancePalette.",
+      "Renovados todos los íconos de navegación, categorías y cuentas.",
+      "Al eliminar un movimiento recurrente ya se restablece correctamente su saldo y estado mensual."
+    ]
+  },
+  {
+    "version": "0.1.0-alpha.4",
+    "build": 4,
+    "date": "2026-11-08",
+    "tag": "Organización y estilos",
+    "title": "Carpetas reales, estilos visuales y barra propia de macOS",
+    "highlights": [
+      "Organiza las notas como archivos Markdown y carpetas normales dentro del cuaderno con papelera restaurable.",
+      "Estilos Clásico, Retro y Pop separados de los temas de color, más plantillas de notas.",
+      "Barra propia de Folio en macOS con arrastre de ventana y búsqueda global mejorada."
+    ],
+    "fixes": [
+      "Recuerda ajustes de Vim y muestra combinaciones recientes en el editor."
+    ]
+  },
+  {
+    "version": "0.1.0-alpha.3",
+    "build": 3,
+    "date": "2026-11-06",
+    "tag": "Actualizaciones",
+    "title": "Primer canal de actualizaciones automáticas",
+    "highlights": [
+      "Publicación automatizada de versiones y notas de cambio desde GitHub Actions."
+    ],
+    "fixes": []
+  }
+]

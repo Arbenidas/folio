@@ -13,6 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:folio/main.dart';
 import 'package:folio/core/theme.dart';
 import 'package:folio/core/widgets/app_icon_button.dart';
+import 'package:folio/features/blog_publication/data/blog_connection.dart';
+import 'package:folio/features/blog_publication/presentation/blog_publish_dialog.dart';
 import 'package:folio/features/editor/data/file_repository.dart';
 import 'package:folio/features/editor/domain/document_repository.dart';
 import 'package:folio/features/editor/domain/markdown_document.dart';
@@ -20,7 +22,6 @@ import 'package:folio/features/editor/domain/notebook_snapshot.dart';
 import 'package:folio/features/editor/domain/trashed_note.dart';
 import 'package:folio/features/editor/data/recovered_drafts_repository.dart';
 import 'package:folio/features/editor/presentation/controllers/editor_notifier.dart';
-import 'package:folio/features/editor/presentation/controllers/vim_controller.dart';
 import 'package:folio/features/editor/presentation/views/editor_screen.dart';
 import 'package:folio/features/editor/presentation/widgets/markdown_preview.dart';
 import 'package:folio/features/editor/presentation/widgets/notes_sidebar.dart';
@@ -144,28 +145,6 @@ class EmptyRecoveredDrafts extends RecoveredDraftsRepository {
   Future<List<RecoveredDraft>> list() async => [];
 }
 
-VimController makeVim(
-  TextEditingController text, {
-  ValueChanged<String>? onEdit,
-}) => VimController(
-  text,
-  onEdit: onEdit ?? (_) {},
-  onSave: () {},
-  onCommand: () {},
-  onSearch: () {},
-  onLeftPane: () {},
-  onRightPane: () {},
-);
-void press(VimController vim, String char) => vim.handle(
-  FocusNode(),
-  KeyDownEvent(
-    physicalKey: PhysicalKeyboardKey.keyA,
-    logicalKey: LogicalKeyboardKey.keyA,
-    character: char,
-    timeStamp: Duration.zero,
-  ),
-);
-
 void main() {
   test(
     'Migrates old notes without changing the old notebook or its visuals',
@@ -260,53 +239,6 @@ void main() {
     await repo.events.close();
     await support.delete(recursive: true);
   });
-  test('Vim handles words, line movement, Unicode deletion and undo', () {
-    final text = TextEditingController();
-    final vim = makeVim(text);
-    vim.load('uno dos\nx\nuna linea larga');
-    press(vim, 'w');
-    expect(vim.cursor, 4);
-    press(vim, 'j');
-    expect(vim.cursor, 8);
-    press(vim, 'j');
-    expect(vim.cursor, 14);
-    press(vim, 'g');
-    press(vim, 'g');
-    expect(vim.cursor, 0);
-    press(vim, r'$');
-    expect(vim.cursor, 6);
-    vim.load('a🦋b');
-    press(vim, 'l');
-    press(vim, 'x');
-    expect(text.text, 'ab');
-    press(vim, 'u');
-    expect(text.text, 'a🦋b');
-    vim.dispose();
-    text.dispose();
-  });
-  test('Vim line commands, insert and search maintain valid selections', () {
-    final text = TextEditingController();
-    final vim = makeVim(text);
-    vim.load('uno\ndos\ntres');
-    press(vim, 'd');
-    press(vim, 'd');
-    expect(text.text, 'dos\ntres');
-    press(vim, 'p');
-    expect(text.text, 'dos\nuno\ntres');
-    expect(vim.search('tres'), true);
-    expect(vim.cursor, 8);
-    press(vim, 'o');
-    expect(vim.insert, true);
-    expect(text.text, 'dos\nuno\ntres\n');
-    vim.load('');
-    press(vim, 'h');
-    press(vim, 'l');
-    press(vim, 'b');
-    press(vim, 'x');
-    expect(vim.cursor, 0);
-    vim.dispose();
-    text.dispose();
-  });
   testWidgets(
     'Sidebar transitions preserve editing state and keyboard scroll accumulates',
     (tester) async {
@@ -366,7 +298,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 20));
       await tester.sendKeyEvent(LogicalKeyboardKey.keyJ, character: 'j');
       await tester.pumpAndSettle();
-      expect(markdown.controller.offset, closeTo(60, 0.1));
+      expect(markdown.controller.offset, closeTo(120, 0.1));
       expect(tester.takeException(), isNull);
       await c.save();
       await tester.pumpWidget(const SizedBox());
@@ -396,7 +328,7 @@ void main() {
       final before = tester.getTopLeft(find.text('EDITOR')).dx;
       await tester.tap(find.byTooltip('Ocultar notas'));
       await tester.pump();
-      expect(tester.getTopLeft(find.text('EDITOR')).dx, before - 236);
+      expect(tester.getTopLeft(find.text('EDITOR')).dx, before - 272);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       c.dispose();
@@ -486,6 +418,44 @@ void main() {
       await c.save();
       await tester.pumpWidget(const SizedBox());
       c.dispose();
+    },
+  );
+  testWidgets(
+    'The note ellipsis opens publication for that note without selecting it',
+    (tester) async {
+      final repository = MemoryRepository();
+      await repository.createNote(title: 'Otra nota', content: 'Su borrador');
+      final editor = EditorNotifier(
+        repository,
+        recovered: EmptyRecoveredDrafts(),
+      );
+      await editor.load();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            editorProvider.overrideWithValue(editor),
+            blogConnectionProvider.overrideWith((ref) => null),
+          ],
+          child: const MyApp(home: EditorScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.bySemanticsLabel('Acciones de Otra nota'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Publicar en arbe.blog…'));
+      await tester.pumpAndSettle();
+
+      final dialog = tester.widget<BlogPublishDialog>(
+        find.byType(BlogPublishDialog),
+      );
+      expect(dialog.noteTitle, 'Otra nota');
+      expect(dialog.markdown, 'Su borrador');
+      expect(editor.selectedNote?.title, 'Flutter');
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+      editor.dispose();
     },
   );
   testWidgets(
@@ -667,8 +637,104 @@ void main() {
       c.dispose();
     },
   );
+  testWidgets('Completes a portable note link and opens it in reading mode', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1100, 750);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = MemoryRepository()
+      ..saved = const [
+        MarkdownDocument(
+          id: 'Daily/Inicio.md',
+          title: 'Inicio',
+          folder: 'Daily',
+          content: '',
+        ),
+        MarkdownDocument(
+          id: 'Work/Café #1.md',
+          title: 'Café #1',
+          folder: 'Work',
+          content: 'Contenido del destino',
+        ),
+      ];
+    final controller = EditorNotifier(
+      repository,
+      recovered: EmptyRecoveredDrafts(),
+    );
+    await controller.load();
+    controller.select('Daily/Inicio.md');
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [editorProvider.overrideWithValue(controller)],
+        child: const MyApp(home: EditorScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final editor = find.byWidgetPredicate(
+      (widget) =>
+          widget is EditableText && widget.focusNode.debugLabel == 'Editor',
+    );
+    await tester.enterText(editor, '[[caf');
+    await tester.pump();
+    expect(find.text('Enlazar nota · ↑ ↓ · ↵'), findsOneWidget);
+    expect(find.text('Contenido del destino'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(controller.note.content, '[Café #1](<../Work/Caf%C3%A9%20%231.md>)');
+
+    await tester.tap(find.byTooltip('Solo editor'));
+    await tester.pumpAndSettle();
+    expect(find.text('VISTA PREVIA'), findsNothing);
+    await tester.tap(find.byTooltip('Solo vista previa'));
+    await tester.pumpAndSettle();
+    expect(editor, findsNothing);
+    final link = find.text('Café #1', findRichText: true).last;
+    await tester.tap(link);
+    await tester.pumpAndSettle();
+    expect(controller.selectedId, 'Work/Café #1.md');
+    expect(find.text('VISTA PREVIA'), findsOneWidget);
+    expect(editor, findsNothing);
+    await tester.tap(find.byTooltip('Vista dividida'));
+    await tester.pumpAndSettle();
+    expect(editor, findsOneWidget);
+    expect(tester.widget<EditableText>(editor).focusNode.hasFocus, isTrue);
+
+    await controller.save();
+    await tester.pumpWidget(const SizedBox());
+    controller.dispose();
+    await repository.events.close();
+  });
+
+  testWidgets('Renders code fence metadata in the preview', (tester) async {
+    final scroll = ScrollController();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildEditorTheme(AppTheme.nord),
+        home: Scaffold(
+          body: MarkdownPreview(
+            controller: scroll,
+            content:
+                '```ts filename="search.ts" title="Búsqueda" line=10\n'
+                'const query = "café";\nreturn query;\n```',
+          ),
+        ),
+      ),
+    );
+    expect(find.text('Búsqueda'), findsOneWidget);
+    expect(find.text('search.ts · ts'), findsOneWidget);
+    expect(find.text('10\n11'), findsOneWidget);
+    expect(
+      find.textContaining('return query;', findRichText: true),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(const SizedBox());
+    scroll.dispose();
+  });
+
   testWidgets(
-    'Simple editor creates notes, renders Markdown, opens help and supports Vim',
+    'Editor creates notes, navigates panes with keyboard, toggles tasks in view bar, and opens help',
     (tester) async {
       tester.view.physicalSize = const Size(1100, 750);
       tester.view.devicePixelRatio = 1;
@@ -687,12 +753,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('VISTA PREVIA'), findsOneWidget);
-      expect(find.text('NORMAL'), findsOneWidget);
-      expect(find.text('Estudio'), findsNothing);
-      expect(tester.takeException(), isNull);
-      await tester.sendKeyEvent(LogicalKeyboardKey.keyI, character: 'i');
-      await tester.pump();
-      expect(find.text('INSERT'), findsOneWidget);
+      expect(find.text('Vim'), findsNothing);
+      expect(find.byKey(const ValueKey('note-header-tasks-button')), findsOneWidget);
       await tester.enterText(
         find.byWidgetPredicate(
           (widget) =>
@@ -702,15 +764,58 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(c.note.content, '# Flutter\n\nUn widget');
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pump();
-      expect(find.text('NORMAL'), findsOneWidget);
+
+      // Navigate left to Sidebar with Ctrl+Left and back to Editor with Right Arrow
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(FocusManager.instance.primaryFocus?.debugLabel, 'Notas');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+      expect(FocusManager.instance.primaryFocus?.debugLabel, 'Editor');
+
+      // Navigate right to Preview with Ctrl+Right and back to Editor with Left Arrow
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(FocusManager.instance.primaryFocus?.debugLabel, 'Vista previa');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await tester.pumpAndSettle();
+      expect(FocusManager.instance.primaryFocus?.debugLabel, 'Editor');
+
+      // Clicking directly inside the editor must keep focus and allow typing
+      final editorFinder = find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText && widget.focusNode.debugLabel == 'Editor',
+      );
+      await tester.tap(editorFinder);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<EditableText>(editorFinder).focusNode.hasFocus,
+        isTrue,
+      );
+
+      // Toggle Tasks panel from the note header view selector
+      await tester.tap(find.byKey(const ValueKey('note-header-tasks-button')));
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(
+        find.byTooltip('Ocultar panel de tareas (⌘4 / ⌘⇧T)'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('note-header-tasks-button')));
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(find.byTooltip('Panel de tareas (⌘4 / ⌘⇧T)'), findsOneWidget);
+
       await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
       await tester.pumpAndSettle();
       expect(c.notes.length, 2);
-      expect(find.text('INSERT'), findsOneWidget);
+
       await tester.sendKeyEvent(LogicalKeyboardKey.f1);
       await tester.pumpAndSettle();
       expect(find.text('Markdown'), findsWidgets);

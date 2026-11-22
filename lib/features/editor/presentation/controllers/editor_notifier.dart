@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../../core/first_run_config.dart';
+import '../../../cloud_sync/data/folio_cloud_sync_service.dart';
+import '../../data/desktop_notes_cloud_sync.dart';
 import '../../data/file_repository.dart';
 import '../../data/notebook_sync_service.dart';
 import '../../data/recovered_drafts_repository.dart';
@@ -49,6 +51,7 @@ class EditorNotifier extends ChangeNotifier {
   bool _disposed = false;
   NotebookSyncService? _sync;
   StreamSubscription<NotebookSyncUpdate>? _syncSubscription;
+  DesktopNotesCloudSync? _cloudSync;
   final Map<String, String> _diskContents = {};
   final Set<String> _dirtyIds = {};
 
@@ -83,6 +86,15 @@ class EditorNotifier extends ChangeNotifier {
       _sync = NotebookSyncService(repository);
       _syncSubscription = _sync!.updates.listen(_onSyncUpdate);
       _sync!.start();
+      _cloudSync ??= DesktopNotesCloudSync(
+        cloudSync: FolioCloudSyncService.instance,
+        getRepository: () => repository,
+        getCurrentSnapshot: () =>
+            NotebookSnapshot(notes: notes, folderPaths: folderPaths),
+        isNoteDirty: (id) => _dirtyIds.contains(id),
+        onRemoteApplied: _refreshFromDisk,
+      );
+      _cloudSync!.start();
     } catch (e) {
       loadFailed = true;
       error =
@@ -173,6 +185,7 @@ class EditorNotifier extends ChangeNotifier {
     contentListenable.value = selectedNote?.content ?? '';
     await refreshRecoveredDrafts();
     _emit();
+    _cloudSync?.scheduleUpload();
   }
 
   Future<void> refreshRecoveredDrafts() async {
@@ -219,6 +232,7 @@ class EditorNotifier extends ChangeNotifier {
       contentListenable.value = created.content;
       _dirtyIds.remove(created.id);
       _emit();
+      _cloudSync?.scheduleUpload();
     } catch (e) {
       error = 'No se pudo crear la nota: $e';
       _emit();
@@ -230,6 +244,7 @@ class EditorNotifier extends ChangeNotifier {
       final actual = await repository.createFolder(path);
       _addFolderPath(actual);
       _emit();
+      _cloudSync?.scheduleUpload();
       return actual;
     } catch (e) {
       error = 'No se pudo crear la carpeta: $e';
@@ -267,6 +282,7 @@ class EditorNotifier extends ChangeNotifier {
           selectedId = notes.isEmpty ? null : notes.first.id;
           contentListenable.value = selectedNote?.content ?? '';
         }
+        _cloudSync?.scheduleUpload();
       } catch (e) {
         error = 'No se pudo enviar la nota a la papelera: $e';
       }
@@ -277,16 +293,18 @@ class EditorNotifier extends ChangeNotifier {
 
   Future<List<TrashedNote>> listTrash() => repository.listTrash();
 
-  Future<void> restoreDeletedNote(TrashedNote note) async {
+  Future<MarkdownDocument?> restoreDeletedNote(TrashedNote note) async {
     try {
       final restored = await repository.restoreDeletedNote(note.id);
       _replaceNote(restored.id, restored);
       _diskContents[restored.id] = restored.content;
       if (restored.folder case final folder?) _addFolderPath(folder);
       select(restored.id);
+      return restored;
     } catch (e) {
       error = 'No se pudo restaurar la nota: $e';
       _emit();
+      return null;
     }
   }
 
@@ -303,16 +321,24 @@ class EditorNotifier extends ChangeNotifier {
   Future<Uint8List?> readImage(String noteId, String reference) =>
       repository.readImage(noteId, reference);
 
-  Future<void> deleteFolder(String folder) async {
+  Future<Map<String, String>> deleteFolder(String folder) async {
     try {
       await save();
-      if (saveStatus == 'Error al guardar')
+      if (saveStatus == 'Error al guardar') {
         throw const FileSystemException('Hay cambios sin guardar.');
-      await repository.deleteFolder(folder);
+      }
+      final movedNoteIds = repository is FileRepository
+          ? await (repository as FileRepository).deleteFolderWithNoteMappings(
+              folder,
+            )
+          : <String, String>{};
+      if (repository is! FileRepository) await repository.deleteFolder(folder);
       await _queueReconcile(await repository.scan());
+      return movedNoteIds;
     } catch (e) {
       error = 'No se pudo eliminar la carpeta: $e';
       _emit();
+      return {};
     }
   }
 
@@ -334,17 +360,18 @@ class EditorNotifier extends ChangeNotifier {
     _changed(notify: title != null);
   }
 
-  Future<void> renameNote(String id, String title) =>
+  Future<MarkdownDocument?> renameNote(String id, String title) =>
       _relocateNote(id, 'renombrar', () => repository.renameNote(id, title));
 
-  Future<void> moveToFolder(String id, String? folder) =>
+  Future<MarkdownDocument?> moveToFolder(String id, String? folder) =>
       _relocateNote(id, 'mover', () => repository.moveNote(id, folder));
 
-  Future<void> _relocateNote(
+  Future<MarkdownDocument?> _relocateNote(
     String id,
     String action,
     Future<MarkdownDocument> Function() relocate,
   ) {
+    MarkdownDocument? relocatedResult;
     _writes = save().then((_) async {
       if (saveStatus == 'Error al guardar') {
         error = 'No se pudo $action porque hay cambios sin guardar.';
@@ -354,6 +381,7 @@ class EditorNotifier extends ChangeNotifier {
       if (!notes.any((item) => item.id == id)) return;
       try {
         final relocated = await relocate();
+        relocatedResult = relocated;
         final edited = _dirtyIds.remove(id);
         final replacement = edited
             ? relocated.copyWith(
@@ -373,43 +401,48 @@ class EditorNotifier extends ChangeNotifier {
           contentListenable.value = replacement.content;
         }
         _emit();
+        _cloudSync?.scheduleUpload();
       } catch (e) {
         error = 'No se pudo $action la nota: $e';
         _emit();
       }
     });
-    return _writes;
+    return _writes.then((_) => relocatedResult);
   }
 
-  Future<void> moveFolderTo(String folder, String? destination) async {
+  Future<String?> moveFolderTo(String folder, String? destination) async {
     await save();
     if (saveStatus == 'Error al guardar') {
       error = 'No se pudo mover porque hay cambios sin guardar.';
       _emit();
-      return;
+      return null;
     }
     try {
-      await repository.moveFolder(folder, destination);
+      final moved = await repository.moveFolder(folder, destination);
       await _refreshFromDisk();
+      return moved;
     } catch (e) {
       error = 'No se pudo mover la carpeta: $e';
       _emit();
+      return null;
     }
   }
 
-  Future<void> renameFolder(String folder, String title) async {
+  Future<String?> renameFolder(String folder, String title) async {
     await save();
     if (saveStatus == 'Error al guardar') {
       error = 'No se pudo renombrar porque hay cambios sin guardar.';
       _emit();
-      return;
+      return null;
     }
     try {
-      await repository.renameFolder(folder, title);
+      final renamed = await repository.renameFolder(folder, title);
       await _refreshFromDisk();
+      return renamed;
     } catch (e) {
       error = 'No se pudo renombrar la carpeta: $e';
       _emit();
+      return null;
     }
   }
 
@@ -450,6 +483,7 @@ class EditorNotifier extends ChangeNotifier {
         }
         if (revision == _revision && _dirtyIds.isEmpty) {
           _setSaveStatus('Guardado');
+          _cloudSync?.scheduleUpload();
         } else if (_dirtyIds.isNotEmpty) {
           _setSaveStatus('Guardando…');
           _timer?.cancel();
@@ -490,15 +524,18 @@ class EditorNotifier extends ChangeNotifier {
   Future<void> changeStorageDirectory(
     Directory destination, {
     Future<void> Function()? beforeSwitch,
+    Future<void> Function(Map<String, String> noteIds)? copyNotebookData,
   }) async {
     String normalize(String path) => p.normalize(p.absolute(path));
     final oldDirectory = NotesStorage.directory;
     if (oldDirectory != null &&
-        normalize(oldDirectory.path) == normalize(destination.path))
+        normalize(oldDirectory.path) == normalize(destination.path)) {
       return;
+    }
     await save();
-    if (saveStatus == 'Error al guardar')
+    if (saveStatus == 'Error al guardar') {
       throw const FileSystemException('Hay cambios sin guardar.');
+    }
     final sourceSnapshot = await repository.scan();
     final copied = await FileRepository.copyNotebookInto(
       destination,
@@ -506,6 +543,7 @@ class EditorNotifier extends ChangeNotifier {
       sourceRepository: repository is FileRepository
           ? repository as FileRepository
           : null,
+      copyNotebookData: copyNotebookData,
     );
     await beforeSwitch?.call();
     if (_disposed) return;
@@ -599,6 +637,7 @@ class EditorNotifier extends ChangeNotifier {
     _timer?.cancel();
     unawaited(_syncSubscription?.cancel());
     unawaited(_sync?.dispose());
+    unawaited(_cloudSync?.dispose());
     contentListenable.dispose();
     saveStatusListenable.dispose();
     super.dispose();

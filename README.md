@@ -2,20 +2,27 @@
 
 Folio es una aplicación de escritorio para macOS que permite escribir y organizar notas Markdown localmente. Puedes elegir el tema y la carpeta donde se guardan las notas.
 
+Conecta tu cuenta en **Ajustes → Integraciones → arbe.blog**. Desde los tres puntos de una nota, elige **Publicar en arbe.blog…** para revisar el título, elegir un banner y agregar palabras clave antes de enviar. El proyecto de Supabase debe tener la función `folio-publish` y admitir la redirección `com.folio.app://auth/callback`. Las compilaciones de macOS incluyen la configuración pública del blog. Para un entorno de pruebas puedes sustituirla con `--dart-define=FOLIO_BLOG_SUPABASE_URL=<url>`, `--dart-define=FOLIO_BLOG_SUPABASE_KEY=<clave-pública>` y `--dart-define=FOLIO_BLOG_SITE_URL=<origen-https>`.
+
 > **Estado del proyecto:** en desarrollo. Las versiones alfa pueden contener errores y cambiar.
 
 ## Funciones
 
 - Crear y renombrar notas con guardado automático.
-- Elegir dónde guardar las notas, combinar tres estilos visuales con siete temas de color y cambiar el tamaño de la ventana con doble clic en la barra superior.
+- Elegir dónde guardar las notas, combinar tres estilos visuales con nueve temas de color y cambiar el tamaño de la ventana con doble clic en la barra superior.
 - Editar con atajos de teclado y un subconjunto de comandos Vim.
 - Buscar dentro de todas las notas con `Cmd+K` y saltar a la coincidencia.
 - Crear notas de estudio, ideas y requisitos desde **Archivo → Nueva nota desde plantilla**, con una vista previa antes de elegir.
+- Cambiar entre editor, vista dividida y lectura desde la barra de la nota.
+- Escribir `[[` para buscar otra nota y enlazarla con Markdown relativo.
 - Marcar y desmarcar tareas Markdown directamente en la vista previa.
+- Mostrar títulos, archivos y números de línea en bloques de código. Por ejemplo, abre un bloque con ```` ```ts filename="search.ts" title="Búsqueda" line=10 ````.
 - Pegar capturas con `Cmd+V` en el editor y verlas en la vista previa.
 - Restaurar notas eliminadas desde **Archivo → Papelera**.
 - Importar archivos `.md` y `.txt` de hasta 1 MB. La importación crea una copia local y no modifica el original.
 - Exportar una nota como archivo Markdown.
+
+Las paletas de Folio adaptan [Flexoki de Steph Ango](https://stephango.com/flexoki), [Rosé Pine Dawn](https://rosepinetheme.com/palette/), [Nord](https://www.nordtheme.com/docs/colors-and-palettes/) y [Gruvbox](https://github.com/morhetz/gruvbox).
 
 ## Requisitos
 

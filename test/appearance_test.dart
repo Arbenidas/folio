@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:folio/core/theme.dart';
 import 'package:folio/features/settings/presentation/views/settings_screen.dart';
@@ -11,6 +12,10 @@ void main() {
   testWidgets('Settings saves the style and palette independently', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final appearance = AppAppearance.instance;
     final originalTheme = appearance.selected;
     final originalStyle = appearance.style;
@@ -35,16 +40,20 @@ void main() {
     expect(appearance.style, AppStyle.retro);
 
     await tester.pumpWidget(
-      MyApp(
-        home: SettingsScreen(
-          initialVolume: 0.68,
-          onVolumeChanged: (_) {},
-          initialNotesDirectory: Directory('/tmp'),
-          onNotesDirectoryChanged: (_) async {},
+      ProviderScope(
+        child: MyApp(
+          home: SettingsScreen(
+            initialVolume: 0.68,
+            onVolumeChanged: (_) {},
+            initialNotesDirectory: Directory('/tmp'),
+            onNotesDirectoryChanged: (_) async {},
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('INTEGRACIONES'), findsOneWidget);
+    expect(find.text('arbe.blog'), findsOneWidget);
     expect(find.text('ESTILO'), findsOneWidget);
     expect(find.text('TEMAS DE COLOR'), findsOneWidget);
     final swatches = find.byWidgetPredicate(

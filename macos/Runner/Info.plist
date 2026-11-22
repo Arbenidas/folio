@@ -10,6 +10,33 @@
 	<string></string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>GIDClientID</key>
+	<string>483907243932-v1umdbhe9f61jvdejejogmc1dnrd9rn5.apps.googleusercontent.com</string>
+	<key>GIDServerClientID</key>
+	<string>483907243932-v6r3loqsjiqi12jpfbr0o43r4m2rgcui.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.folio.app.blog-auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.folio.app</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.arbenidas.folio.google-signin</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.483907243932-v1umdbhe9f61jvdejejogmc1dnrd9rn5</string>
+			</array>
+		</dict>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>

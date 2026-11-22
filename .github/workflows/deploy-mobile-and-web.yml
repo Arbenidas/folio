@@ -1,0 +1,195 @@
+name: Deploy Mobile & Web
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: mobile-web-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-web:
+    name: Build & Deploy Web (GitHub Pages)
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Read version metadata
+        id: meta
+        run: |
+          version="$(sed -n 's/^version: \([^+]*\)+.*/\1/p' pubspec.yaml)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Flutter Web
+        run: |
+          flutter build web --release \
+            --target=lib/main_web.dart \
+            --base-href="/folio/" \
+            --dart-define=FOLIO_APP_VERSION=${{ steps.meta.outputs.version }} \
+            --dart-define=FOLIO_APP_BUILD=${{ steps.meta.outputs.build }}
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Web artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  build-mobile:
+    name: Build Android APK & Publish Live Update Feed
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.4
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Read version and patch notes
+        id: meta
+        run: |
+          version="$(sed -n 's/^version: \([^+]*\)+.*/\1/p' pubspec.yaml)"
+          pubspec_build="$(sed -n 's/^version: [^+]+\([0-9]*\).*/\1/p' pubspec.yaml)"
+          build="$(( pubspec_build > GITHUB_RUN_NUMBER ? pubspec_build : GITHUB_RUN_NUMBER ))"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
+      - name: Build Android Release APK
+        run: |
+          flutter build apk --release \
+            --build-name=${{ steps.meta.outputs.version }} \
+            --build-number=${{ steps.meta.outputs.build }} \
+            --dart-define=FOLIO_APP_VERSION=${{ steps.meta.outputs.version }} \
+            --dart-define=FOLIO_APP_BUILD=${{ steps.meta.outputs.build }}
+          cp build/app/outputs/flutter-apk/app-release.apk "$RUNNER_TEMP/Folio-android.apk"
+
+      - name: Generate updates.json & release notes
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_NUM: ${{ steps.meta.outputs.build }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os
+
+          repo = os.environ["REPOSITORY"]
+          version = os.environ["VERSION"]
+          build_num = int(os.environ["BUILD_NUM"])
+          sha = os.environ["COMMIT_SHA"][:7]
+          with open("assets/patch_notes.json", "r", encoding="utf-8") as f:
+              notes = json.load(f)
+          latest = notes[0] if notes else {}
+          summary = latest.get("title", f"Actualización {version}")
+
+          manifest = {
+              "version": version,
+              "build": build_num,
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "commitSha": sha,
+              "summary": summary,
+              "androidApkUrl": f"https://github.com/{repo}/releases/download/mobile-latest/Folio-android.apk",
+              "macosUrl": f"https://github.com/{repo}/releases/latest",
+              "webUrl": "https://folio-2b7e3.web.app/",
+          }
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "updates.json"), "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+          lines = [f"## Folio v{version} (build {build_num})", "", f"**{summary}**", ""]
+          for h in latest.get("highlights", []):
+              lines.append(f"- {h}")
+          if latest.get("fixes"):
+              lines.append("")
+              lines.append("### Correcciones")
+              for fx in latest["fixes"]:
+                  lines.append(f"- {fx}")
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "mobile-notes.md"), "w", encoding="utf-8") as f:
+              f.write("\n".join(lines) + "\n")
+          PY
+
+      - name: Publish rolling mobile-latest GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_NUM: ${{ steps.meta.outputs.build }}
+        run: |
+          set -euo pipefail
+          if gh release view mobile-latest >/dev/null 2>&1; then
+            gh release upload mobile-latest "$RUNNER_TEMP/Folio-android.apk" --clobber
+            gh release edit mobile-latest \
+              --title "Folio Móvil v${VERSION} (build ${BUILD_NUM})" \
+              --notes-file "$RUNNER_TEMP/mobile-notes.md" \
+              --prerelease
+          else
+            gh release create mobile-latest "$RUNNER_TEMP/Folio-android.apk" \
+              --title "Folio Móvil v${VERSION} (build ${BUILD_NUM})" \
+              --notes-file "$RUNNER_TEMP/mobile-notes.md" \
+              --prerelease
+          fi
+
+      - name: Publish updates.json & patch_notes.json to updates branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          BUILD_NUM: ${{ steps.meta.outputs.build }}
+        run: |
+          set -euo pipefail
+          feed_dir="$RUNNER_TEMP/update-feed"
+          git init --initial-branch=updates "$feed_dir"
+          cd "$feed_dir"
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64)"
+          git -c "http.extraheader=AUTHORIZATION: basic ${auth}" fetch origin updates || true
+          if git show-ref --verify --quiet refs/remotes/origin/updates; then
+            git reset --hard origin/updates
+          fi
+          cp "$RUNNER_TEMP/updates.json" updates.json
+          cp "$GITHUB_WORKSPACE/assets/patch_notes.json" patch_notes.json
+          git add updates.json patch_notes.json
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Publish mobile/web feed v${VERSION} (build ${BUILD_NUM})" || true
+          git -c "http.extraheader=AUTHORIZATION: basic ${auth}" \
+            push --force origin updates

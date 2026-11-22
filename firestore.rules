@@ -1,0 +1,166 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Project: Folio (folio-2b7e3) — Standard edition `(default)` database
+// Access Pattern: Strictly private per-user cloud sync documents.
+// Note: `/users/{userId}` is a virtual parent path (no profile document
+// is stored at `/users/{userId}`), and no collection `list` queries are
+// required or permitted.
+//
+// Document: /users/{userId}/finance/snapshot
+// Fields (all required; no extraneous fields allowed):
+//   - ownerId: string (required, immutable, must equal userId & auth.uid, 1..128 chars)
+//       Owner Firebase Auth UID.
+//   - updatedAt: timestamp (required, allows request.time / serverTimestamp)
+//       Last sync timestamp.
+//   - updatedAtMs: int (required, > 0 && <= 8640000000000000)
+//       Client/sync epoch milliseconds timestamp.
+//   - payloadJson: string (required, 1..524288 chars — 512 KB cap)
+//       Serialized finance snapshot JSON payload.
+//
+// Document: /users/{userId}/notes/scratchpad
+// Fields (all required; no extraneous fields allowed):
+//   - ownerId: string (required, immutable, must equal userId & auth.uid, 1..128 chars)
+//       Owner Firebase Auth UID.
+//   - updatedAt: timestamp (required, allows request.time / serverTimestamp)
+//       Last sync timestamp.
+//   - updatedAtMs: int (required, > 0 && <= 8640000000000000)
+//       Client/sync epoch milliseconds timestamp.
+//   - content: string (required, 0..200000 chars)
+//       Markdown scratchpad text content.
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    // Check if the user is authenticated.
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if the authenticated user owns the path {userId}.
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Check if an existing document's ownerId matches the authenticated user.
+    function isExistingDocOwner(userId) {
+      return isOwner(userId) &&
+        resource != null &&
+        resource.data.ownerId == userId;
+    }
+
+    // Check that ownerId on the incoming payload matches both path userId and auth UID.
+    function ownerIdMatches(userId) {
+      return request.resource.data.ownerId is string &&
+        request.resource.data.ownerId.size() > 0 &&
+        request.resource.data.ownerId.size() <= 128 &&
+        request.resource.data.ownerId == userId &&
+        request.resource.data.ownerId == request.auth.uid;
+    }
+
+    // Ensure immutable fields are not modified on update.
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Ensure ownerId is never modified on update.
+    function ownerIdNotModified() {
+      return areImmutableFieldsUnchanged(['ownerId']) &&
+        request.resource.data.ownerId == resource.data.ownerId;
+    }
+
+    // Validate that the document contains only the allowed fields.
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Validate that all required fields exist.
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Validate positive epoch milliseconds within realistic date bounds.
+    function isValidUpdatedAtMs(value) {
+      return value is int &&
+        value > 0 &&
+        value <= 8640000000000000;
+    }
+
+    // ===============================================================
+    // Domain Validators (invoked on BOTH create and update)
+    // ===============================================================
+
+    function isValidFinanceSnapshot(data, userId) {
+      let allowedFields = ['ownerId', 'updatedAt', 'updatedAtMs', 'payloadJson'];
+      return hasOnlyAllowedFields(allowedFields) &&
+        hasRequiredFields(allowedFields) &&
+        ownerIdMatches(userId) &&
+        data.updatedAt is timestamp &&
+        isValidUpdatedAtMs(data.updatedAtMs) &&
+        data.payloadJson is string &&
+        data.payloadJson.size() > 0 &&
+        data.payloadJson.size() <= 524288;
+    }
+
+    function isValidNotesScratchpad(data, userId) {
+      let allowedFields = ['ownerId', 'updatedAt', 'updatedAtMs', 'content'];
+      return hasOnlyAllowedFields(allowedFields) &&
+        hasRequiredFields(allowedFields) &&
+        ownerIdMatches(userId) &&
+        data.updatedAt is timestamp &&
+        isValidUpdatedAtMs(data.updatedAtMs) &&
+        data.content is string &&
+        data.content.size() <= 200000;
+    }
+
+    // ===============================================================
+    // Match Rules
+    // ===============================================================
+
+    // Private per-user finance snapshot document (no collection list allowed).
+    match /users/{userId}/finance/snapshot {
+      allow get: if isOwner(userId) &&
+        (resource == null || resource.data.ownerId == userId);
+
+      allow create: if isOwner(userId) &&
+        isValidFinanceSnapshot(request.resource.data, userId);
+
+      allow update: if isExistingDocOwner(userId) &&
+        isValidFinanceSnapshot(request.resource.data, userId) &&
+        ownerIdNotModified();
+
+      allow delete: if isOwner(userId) &&
+        (resource == null || resource.data.ownerId == userId);
+    }
+
+    // Private per-user markdown scratchpad document (no collection list allowed).
+    match /users/{userId}/notes/scratchpad {
+      allow get: if isOwner(userId) &&
+        (resource == null || resource.data.ownerId == userId);
+
+      allow create: if isOwner(userId) &&
+        isValidNotesScratchpad(request.resource.data, userId);
+
+      allow update: if isExistingDocOwner(userId) &&
+        isValidNotesScratchpad(request.resource.data, userId) &&
+        ownerIdNotModified();
+
+      allow delete: if isOwner(userId) &&
+        (resource == null || resource.data.ownerId == userId);
+    }
+
+    // Explicit default deny for all other paths and operations.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

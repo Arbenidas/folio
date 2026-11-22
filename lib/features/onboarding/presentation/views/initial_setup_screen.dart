@@ -6,6 +6,7 @@ import 'package:macos_ui/macos_ui.dart';
 
 import '../../../../core/first_run_config.dart';
 import '../../../../core/theme.dart';
+import '../../../../core/widgets/folio_brand_icon.dart';
 import '../../../editor/data/file_repository.dart';
 
 class InitialSetupScreen extends StatefulWidget {
@@ -113,15 +114,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                   children: [
                     Row(
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Image.asset(
-                            'assets/branding/markdown-icon.png',
-                            width: 52,
-                            height: 52,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
+                        const FolioBrandIcon(size: 52, borderRadius: 14),
                         const SizedBox(width: 15),
                         Expanded(
                           child: Column(
@@ -290,7 +283,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                             const SizedBox(width: 9),
                             Expanded(
                               child: Text(
-                                'Las notas Markdown se guardarán en: ${_directoryPath}/Folio',
+                                'Las notas Markdown se guardarán en: $_directoryPath/Folio',
                                 style: TextStyle(
                                   color: colors.onSurface,
                                   fontSize: 11,

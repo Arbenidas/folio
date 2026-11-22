@@ -35,28 +35,23 @@ class _MarkdownHelpState extends State<MarkdownHelp> {
   ];
 
   static const keys = [
-    ('i  ·  Esc', 'Entrar en INSERT / volver a NORMAL'),
-    ('h  j  k  l', 'Mover el cursor: izquierda, abajo, arriba, derecha'),
-    ('w  ·  b', 'Siguiente palabra / palabra anterior'),
-    ('0  ·  \$', 'Inicio / último carácter de la línea'),
-    ('gg  ·  G', 'Inicio / última línea del documento'),
-    ('a  ·  A  ·  I', 'Insertar después / al final / al inicio de línea'),
-    ('o  ·  O', 'Crear una línea debajo / encima'),
-    ('x  ·  dd', 'Borrar carácter / borrar línea'),
-    ('yy  ·  p', 'Copiar línea / pegar línea debajo'),
-    ('u  ·  Ctrl+R', 'Deshacer / rehacer'),
-    ('/  ·  n  ·  N', 'Buscar / siguiente resultado / anterior'),
-    (':w  ·  :new', 'Guardar / crear una nota'),
+    ('⌃←  ·  ⌃→', 'Moverte entre Sidebar de notas ↔ Editor ↔ Vista previa'),
+    ('⌥⌘←  ·  ⌥⌘→', 'Alternativa para moverte entre paneles'),
+    ('⌃Tab  ·  ⌃⇧Tab', 'Recorrer paneles en ciclo (Notas → Editor → Vista previa)'),
+    ('⌘1  ·  ⌘2  ·  ⌘3', 'Saltar directo a Notas / Editor / Vista previa'),
+    ('⌘4  ·  ⌘⇧T', 'Abrir o cerrar el Panel de tareas'),
+    ('↑  ·  ↓  ·  → / Enter', 'En Sidebar de notas: recorrer notas y entrar al editor'),
+    ('↑  ·  ↓  ·  ← / Esc', 'En Vista previa: desplazar y volver al editor'),
+    ('Space  ·  PgUp/PgDn', 'En Vista previa: avanzar o retroceder página'),
     ('⌘N  ·  ⇧⌘N  ·  ⌘S', 'Nueva nota / carpeta / guardar'),
-    ('⌘K  ·  ⌘F', 'Búsqueda rápida / buscar en la nota'),
-    ('⌘1  ·  ⌘2  ·  ⌘3', 'Enfocar notas / editor / vista previa'),
-    ('F1  ·  ?', 'Abrir esta ayuda'),
-    (
-      'Ctrl+H  ·  Ctrl+L',
-      'En Vim: ir a notas / vista previa desde cualquier panel',
-    ),
-    ('j  ·  k  ·  Enter', 'En notas: moverte y abrir la nota'),
-    ('j  ·  k  ·  h', 'En vista previa: desplazar y volver al editor'),
+    ('⌘D', 'Abrir o crear la nota diaria de hoy'),
+    ('⌘K  ·  ⌘F', 'Búsqueda rápida (#etiquetas) / buscar en la nota'),
+    ('⌘G  ·  ⌘⇧G', 'Siguiente / anterior coincidencia al buscar en la nota'),
+    ('⌘⇧O  ·  ⌘⇧F', 'Índice y enlaces / Modo Enfoque'),
+    ('⌘B  ·  ⌘I  ·  ⌘E  ·  ⌘⇧L', 'Negrita / cursiva / código / casilla de tarea'),
+    ('⌘+  ·  ⌘−  ·  ⌘0', 'Cambiar o restablecer tamaño del texto'),
+    ('⌘,', 'Abrir o cerrar Ajustes en vivo'),
+    ('F1', 'Abrir esta ayuda'),
   ];
 
   Widget _markdownContent(ColorScheme colors) => ListView.builder(
@@ -122,7 +117,7 @@ class _MarkdownHelpState extends State<MarkdownHelp> {
         return Padding(
           padding: const EdgeInsets.only(bottom: 17),
           child: Text(
-            'Los atajos con ⌘ funcionan desde los tres paneles. Vim captura sus comandos mientras está activado.',
+            'Navega de forma natural entre el sidebar de notas, el editor y la vista previa usando solo el teclado.',
             style: TextStyle(
               color: colors.onSurfaceVariant,
               fontSize: 12,
@@ -287,7 +282,7 @@ class _MarkdownHelpState extends State<MarkdownHelp> {
                   _navigationItem(
                     index: 1,
                     icon: CupertinoIcons.keyboard,
-                    title: 'Teclado y Vim',
+                    title: 'Teclado',
                     subtitle: 'Atajos y navegación',
                     colors: colors,
                   ),
@@ -340,7 +335,7 @@ class _MarkdownHelpState extends State<MarkdownHelp> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _section == 0 ? 'Markdown' : 'Teclado y Vim',
+                                _section == 0 ? 'Markdown' : 'Teclado',
                                 style: TextStyle(
                                   color: colors.onSurface,
                                   fontSize: 16,

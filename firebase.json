@@ -1,0 +1,37 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
+    "cleanUrls": true,
+    "trailingSlash": false
+  },
+  "auth": {
+    "providers": {
+      "emailPassword": true,
+      "anonymous": false,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Folio",
+        "supportEmail": "diego00clemente@gmail.com",
+        "authorizedRedirectUris": [
+          "https://folio-2b7e3.firebaseapp.com/__/auth/handler",
+          "https://folio-2b7e3.web.app/__/auth/handler",
+          "http://localhost:5000"
+        ]
+      }
+    }
+  }
+}

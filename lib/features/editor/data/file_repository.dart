@@ -34,8 +34,9 @@ class FileRepository implements DocumentRepository {
         root.path,
       );
     }
-    if (create && type == FileSystemEntityType.notFound)
+    if (create && type == FileSystemEntityType.notFound) {
       await root.create(recursive: true);
+    }
     return root;
   }
 
@@ -234,7 +235,12 @@ class FileRepository implements DocumentRepository {
     final root = await _root();
     yield* root
         .watch(recursive: true)
-        .where((event) => !p.basename(event.path).startsWith('.folio-write-'))
+        .where((event) {
+          final name = p.basename(event.path);
+          return !name.startsWith('.folio-write-') &&
+              name != '.folio-tasks.json' &&
+              name != '.folio-pomodoro.json';
+        })
         .map((_) {});
   }
 
@@ -416,8 +422,9 @@ class FileRepository implements DocumentRepository {
   Future<String> createFolder(String path) async {
     final root = await _root();
     final parts = _safeFolderSegments(path);
-    if (parts.isEmpty)
+    if (parts.isEmpty) {
       throw const FileSystemException('Nombre de carpeta vacío.');
+    }
     var parent = root;
     final created = <String>[];
     for (var index = 0; index < parts.length; index++) {
@@ -447,10 +454,11 @@ class FileRepository implements DocumentRepository {
   Future<String> renameFolder(String path, String title) async {
     final root = await _root();
     final segments = _safeFolderSegments(path);
-    if (segments.isEmpty)
+    if (segments.isEmpty) {
       throw const FileSystemException(
         'No se puede renombrar la raíz de Folio.',
       );
+    }
     final source = Directory(p.joinAll([root.path, ...segments]));
     if (await FileSystemEntity.type(source.path, followLinks: false) !=
         FileSystemEntityType.directory) {
@@ -508,6 +516,10 @@ class FileRepository implements DocumentRepository {
 
   @override
   Future<void> deleteFolder(String path) async {
+    await deleteFolderWithNoteMappings(path);
+  }
+
+  Future<Map<String, String>> deleteFolderWithNoteMappings(String path) async {
     final root = await _root();
     final folder = Directory(
       p.joinAll([root.path, ..._safeFolderSegments(path)]),
@@ -522,6 +534,7 @@ class FileRepository implements DocumentRepository {
     final segments = _safeFolderSegments(path);
     await _ensureNoteFolder(root, segments.take(segments.length - 1).toList());
     final parent = folder.parent;
+    final movedNoteIds = <String, String>{};
     if (!p.isWithin(root.path, folder.path)) {
       throw const FileSystemException('La ruta de la carpeta sale de Folio.');
     }
@@ -543,14 +556,30 @@ class FileRepository implements DocumentRepository {
           p.basenameWithoutExtension(name),
           extension: extension,
         );
-        await entry.rename(target);
+        final moved = await entry.rename(target);
+        if (extension.toLowerCase() == '.md') {
+          movedNoteIds[_idFor(entry, root)] = _idFor(moved, root);
+        }
       } else if (entry is Directory) {
         if (name == NotebookAttachments.directoryName) {
           attachments.add(entry);
           continue;
         }
         final target = _uniqueFolderPath(parent, name);
-        await entry.rename(target);
+        final childNotes = (await _scan(entry)).notes;
+        final sourceFolderId = p.posix
+            .relative(entry.path, from: root.path)
+            .split(p.separator)
+            .join('/');
+        final moved = await entry.rename(target);
+        final movedFolderId = p.posix
+            .relative(moved.path, from: root.path)
+            .split(p.separator)
+            .join('/');
+        for (final note in childNotes) {
+          movedNoteIds['$sourceFolderId/${note.id}'] =
+              '$movedFolderId/${note.id}';
+        }
       }
     }
     for (final assets in attachments) {
@@ -563,12 +592,14 @@ class FileRepository implements DocumentRepository {
       );
     }
     await folder.delete();
+    return movedNoteIds;
   }
 
   static Future<NotebookSnapshot> copyNotebookInto(
     Directory destinationParent,
     NotebookSnapshot source, {
     FileRepository? sourceRepository,
+    Future<void> Function(Map<String, String> noteIds)? copyNotebookData,
   }) async {
     final target = FileRepository(directory: destinationParent);
     final root = await target._root();
@@ -587,6 +618,7 @@ class FileRepository implements DocumentRepository {
           : await target.createFolder(intended);
     }
     final sourceRoot = await sourceRepository?._root(create: false);
+    final copiedNoteIds = <String, String>{};
     for (final note in source.notes) {
       final folder = note.folder == null ? null : mappedFolders[note.folder];
       if (sourceRoot != null) {
@@ -601,11 +633,12 @@ class FileRepository implements DocumentRepository {
           note.content,
         );
       }
-      await target.createNote(
+      final copied = await target.createNote(
         title: note.title,
         folder: folder,
         content: note.content,
       );
+      copiedNoteIds[note.id] = copied.id;
     }
     if (sourceRoot != null) {
       for (final note in await sourceRepository!.listTrash()) {
@@ -633,6 +666,7 @@ class FileRepository implements DocumentRepository {
         }
       }
     }
+    await copyNotebookData?.call(copiedNoteIds);
     return target.scan();
   }
 

@@ -1,5 +1,5 @@
 name: folio
-description: "Editor local de notas Markdown para macOS."
+description: "Folio — Notas Markdown, tareas y finanzas personales para macOS, Android, iOS y Web."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 0.1.0-alpha.4+4
+version: 0.1.0-alpha.6+6
 
 environment:
   sdk: ^3.13.3
@@ -42,6 +42,16 @@ dependencies:
   path: ^1.9.1
   characters: ^1.4.1
   macos_ui: ^2.2.2
+  crypto: 3.0.7
+  supabase_flutter: 2.18.3
+  url_launcher: 6.3.3
+  http: ^1.2.2
+  shared_preferences: ^2.5.0
+  firebase_core: ^5.2.0
+  firebase_auth: ^7.1.0
+  cloud_firestore: ^7.2.0
+  google_sign_in: ^7.2.0
+  lucide_icons_flutter: ^4.0.3
 
 dev_dependencies:
   flutter_test:
@@ -66,7 +76,10 @@ flutter:
   uses-material-design: true
   assets:
     - assets/sounds/creamy_sound_keyboard.wav
+    - assets/branding/folio-icon.svg
+    - assets/branding/folio-mark.svg
     - assets/branding/markdown-icon.png
+    - assets/patch_notes.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:
